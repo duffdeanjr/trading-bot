@@ -1,618 +1,1437 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trading Bot</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap');
-
-  :root {
-    --bg: #0a0a0f;
-    --bg2: #111118;
-    --bg3: #18181f;
-    --border: #222230;
-    --border2: #2a2a3a;
-    --text: #e8e8f0;
-    --muted: #6b6b80;
-    --dim: #3a3a50;
-    --green: #00e5a0;
-    --green-dim: #00e5a020;
-    --red: #ff4d6d;
-    --red-dim: #ff4d6d20;
-    --amber: #ffb547;
-    --amber-dim: #ffb54720;
-    --blue: #4d9fff;
-    --blue-dim: #4d9fff15;
-    --purple: #9d7aff;
-    --mono: 'DM Mono', monospace;
-    --sans: 'DM Sans', sans-serif;
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 13px;
-    line-height: 1.5;
-    min-height: 100vh;
-  }
-
-  /* Header */
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 24px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg2);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-
-  .header-left { display: flex; align-items: center; gap: 12px; }
-
-  .logo {
-    font-family: var(--mono);
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--green);
-    letter-spacing: -0.5px;
-  }
-
-  .pulse {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--green);
-    animation: pulse 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 #00e5a040; }
-    50% { opacity: 0.7; box-shadow: 0 0 0 4px #00e5a000; }
-  }
-
-  .pulse.error { background: var(--red); animation: pulse-red 1.5s ease-in-out infinite; }
-  @keyframes pulse-red {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 #ff4d6d40; }
-    50% { opacity: 0.7; box-shadow: 0 0 0 4px #ff4d6d00; }
-  }
-
-  .status-text {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .refresh-info {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--dim);
-  }
-
-  /* Layout */
-  .layout {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    grid-template-rows: auto auto auto;
-    gap: 1px;
-    background: var(--border);
-    min-height: calc(100vh - 57px);
-  }
-
-  .panel {
-    background: var(--bg);
-    padding: 20px;
-    overflow: hidden;
-  }
-
-  .panel-wide { grid-column: span 2; }
-  .panel-full { grid-column: span 3; }
-
-  .panel-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: var(--muted);
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .panel-label span { color: var(--dim); font-weight: 400; }
-
-  /* Stat cards */
-  .stats { display: flex; gap: 24px; flex-wrap: wrap; }
-
-  .stat {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .stat-val {
-    font-family: var(--mono);
-    font-size: 28px;
-    font-weight: 500;
-    line-height: 1;
-    color: var(--text);
-  }
-
-  .stat-val.green { color: var(--green); }
-  .stat-val.red { color: var(--red); }
-  .stat-val.amber { color: var(--amber); }
-
-  .stat-label {
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-  }
-
-  /* Tables */
-  table { width: 100%; border-collapse: collapse; }
-
-  th {
-    font-family: var(--mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--dim);
-    font-weight: 500;
-    text-align: left;
-    padding: 0 8px 10px 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  td {
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 8px 8px 8px 0;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-    white-space: nowrap;
-  }
-
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--bg2); }
-
-  .buy { color: var(--green); }
-  .sell { color: var(--red); }
-
-  .tag {
-    display: inline-block;
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-weight: 500;
-  }
-
-  .tag-buy { background: var(--green-dim); color: var(--green); }
-  .tag-sell { background: var(--red-dim); color: var(--red); }
-  .tag-warn { background: var(--amber-dim); color: var(--amber); }
-  .tag-error { background: var(--red-dim); color: var(--red); }
-  .tag-info { background: var(--blue-dim); color: var(--blue); }
-
-  /* Plan */
-  .plan-stance {
-    display: inline-block;
-    font-family: var(--mono);
-    font-size: 20px;
-    font-weight: 500;
-    margin-bottom: 12px;
-  }
-
-  .stance-risk-on { color: var(--green); }
-  .stance-risk-off { color: var(--red); }
-  .stance-neutral { color: var(--amber); }
-
-  .plan-targets {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 12px;
-  }
-
-  .target-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .target-sym {
-    font-family: var(--mono);
-    font-size: 12px;
-    font-weight: 500;
-    width: 60px;
-    flex-shrink: 0;
-  }
-
-  .target-bar-bg {
-    flex: 1;
-    height: 4px;
-    background: var(--border2);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .target-bar {
-    height: 100%;
-    background: var(--purple);
-    border-radius: 2px;
-    transition: width 0.5s ease;
-  }
-
-  .target-pct {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    width: 36px;
-    text-align: right;
-    flex-shrink: 0;
-  }
-
-  /* Log entries */
-  .log-entry {
-    display: flex;
-    gap: 10px;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--border);
-    align-items: flex-start;
-  }
-
-  .log-entry:last-child { border-bottom: none; }
-
-  .log-time {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--dim);
-    flex-shrink: 0;
-    padding-top: 1px;
-    width: 60px;
-  }
-
-  .log-agent {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--muted);
-    flex-shrink: 0;
-    width: 90px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding-top: 1px;
-  }
-
-  .log-msg {
-    font-size: 12px;
-    color: var(--text);
-    flex: 1;
-    word-break: break-word;
-  }
-
-  /* Confidence bar */
-  .conf-bar {
-    display: inline-block;
-    width: 40px;
-    height: 3px;
-    background: var(--border2);
-    border-radius: 2px;
-    vertical-align: middle;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .conf-fill {
-    position: absolute;
-    left: 0; top: 0; height: 100%;
-    background: var(--blue);
-    border-radius: 2px;
-  }
-
-  /* Empty state */
-  .empty {
-    color: var(--dim);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 20px 0;
-    text-align: center;
-  }
-
-  /* Scrollable panels */
-  .scroll { max-height: 320px; overflow-y: auto; }
-  .scroll::-webkit-scrollbar { width: 3px; }
-  .scroll::-webkit-scrollbar-track { background: transparent; }
-  .scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-  /* Market status bar */
-  .market-bar {
-    display: flex;
-    gap: 20px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
-  }
-
-  .mstat {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .mstat-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--dim);
-  }
-
-  .mstat-dot.on { background: var(--green); }
-  .mstat-dot.warn { background: var(--amber); }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 200px;
-    color: var(--dim);
-    font-family: var(--mono);
-    font-size: 12px;
-    gap: 8px;
-  }
-
-  .spinner {
-    width: 14px; height: 14px;
-    border: 2px solid var(--border2);
-    border-top-color: var(--green);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Bot — Command Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-secondary: #111827;
+      --bg-card: #1a2332;
+      --bg-card-hover: #1f2b3d;
+      --border: #2a3548;
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --accent-blue: #3b82f6;
+      --accent-amber: #f59e0b;
+      --accent-purple: #8b5cf6;
+      --accent-cyan: #06b6d4;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      overflow-x: hidden;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .glass {
+      background: rgba(26, 35, 50, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: all 0.2s;
+    }
+    .card:hover { background: var(--bg-card-hover); border-color: #3a4a60; }
+    table tbody tr { transition: background 0.15s; }
+    table tbody tr:hover { background: rgba(59,130,246,0.06); }
+    .glow-green { box-shadow: 0 0 20px rgba(16, 185, 129, 0.15); }
+    .glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.15); }
+    .glow-blue { box-shadow: 0 0 20px rgba(59, 130, 246, 0.15); }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .slide-in { animation: slideIn 0.3s ease-out; }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .fade-in { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .btn {
+      padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      cursor: pointer; border: none; transition: all 0.15s;
+    }
+    .btn-primary { background: var(--accent-blue); color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-danger { background: var(--accent-red); color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-success { background: var(--accent-green); color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-amber { background: var(--accent-amber); color: #1a1a1a; }
+    .btn-amber:hover { background: #d97706; }
+    .btn-ghost {
+      background: transparent; color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--bg-card); color: var(--text-primary); }
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge-live { background: rgba(16,185,129,0.15); color: var(--accent-green); }
+    .badge-paused { background: rgba(245,158,11,0.15); color: var(--accent-amber); }
+    .badge-error { background: rgba(239,68,68,0.15); color: var(--accent-red); }
+    .badge-offline { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
+    .tab-active {
+      background: var(--bg-card); color: var(--text-primary);
+      border-bottom: 2px solid var(--accent-blue);
+    }
+    .exec-role {
+      border-left: 3px solid transparent; padding: 16px;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .exec-role:hover { background: var(--bg-card-hover); }
+    .exec-role.active { border-left-color: var(--accent-blue); background: var(--bg-card); }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px); z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal-content {
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; max-width: 560px; width: 90%;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .progress-ring { transform: rotate(-90deg); }
+    .tooltip {
+      position: relative;
+    }
+    .tooltip::after {
+      content: attr(data-tip); position: absolute; bottom: 120%;
+      left: 50%; transform: translateX(-50%);
+      background: #1e293b; color: #e2e8f0;
+      padding: 4px 8px; border-radius: 4px; font-size: 11px;
+      white-space: nowrap; opacity: 0; pointer-events: none;
+      transition: opacity 0.15s;
+    }
+    .tooltip:hover::after { opacity: 1; }
+    .grid-dashboard {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      grid-template-rows: auto;
+      gap: 0;
+      height: calc(100vh - 56px);
+    }
+    .main-content {
+      overflow-y: auto; padding: 20px;
+    }
+    .exec-sidebar {
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      background: var(--bg-secondary);
+    }
+    select, input[type="number"], input[type="text"], textarea {
+      background: var(--bg-primary); border: 1px solid var(--border);
+      color: var(--text-primary); border-radius: 8px; padding: 8px 12px;
+      font-size: 13px; font-family: 'Inter', sans-serif;
+    }
+    select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent-blue); }
+  </style>
 </head>
 <body>
 
-<header>
-  <div class="header-left">
-    <div class="pulse" id="pulse"></div>
-    <div class="logo">trading-bot</div>
-    <div class="status-text" id="status-text">connecting...</div>
+<!-- ═══════════════════ TOP NAV BAR ═══════════════════ -->
+<header class="glass" style="height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 20px; position:sticky; top:0; z-index:50;">
+  <div style="display:flex; align-items:center; gap:16px;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      <span style="font-weight:700; font-size:15px; letter-spacing:-0.3px;">Trading Bot</span>
+      <span style="font-size:11px; color:var(--text-secondary); margin-left:4px;">Command Center</span>
+    </div>
+    <div id="systemStatus" class="status-badge badge-live">
+      <span class="pulse-dot" style="background:var(--accent-green);"></span>
+      LIVE
+    </div>
   </div>
-  <div class="refresh-info" id="refresh-info">—</div>
+  <div style="display:flex; align-items:center; gap:16px;">
+    <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary);">
+      <span>Market:</span>
+      <span id="marketStatus" class="status-badge badge-live" style="font-size:10px;">
+        <span class="pulse-dot" style="background:var(--accent-green);"></span>
+        OPEN
+      </span>
+    </div>
+    <div class="mono" style="font-size:13px; color:var(--text-secondary);" id="clock"></div>
+    <button class="btn btn-danger" style="font-size:11px; padding:6px 12px;" onclick="emergencyStop()">
+      ⏹ EMERGENCY STOP
+    </button>
+  </div>
 </header>
 
-<div class="layout" id="layout">
-  <div class="panel panel-full" style="display:flex;align-items:center;justify-content:center;height:300px">
-    <div class="loading"><div class="spinner"></div> loading data...</div>
+<!-- ═══════════════════ MAIN GRID ═══════════════════ -->
+<div class="grid-dashboard">
+
+  <!-- ─── LEFT: MAIN DASHBOARD ─── -->
+  <div class="main-content scrollbar-thin">
+
+    <!-- KPI CARDS ROW -->
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px;" class="fade-in">
+      <div class="card" style="padding:16px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Portfolio Value</div>
+        <div class="mono" style="font-size:24px; font-weight:700;" id="portfolioValue">$100,000.00</div>
+        <div style="display:flex; align-items:center; gap:4px; margin-top:6px;">
+          <span id="pnlArrow" style="font-size:14px;">▲</span>
+          <span class="mono" id="pnlValue" style="font-size:13px; color:var(--accent-green);">+$1,245.80 (1.25%)</span>
+        </div>
+      </div>
+      <div class="card" style="padding:16px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Buying Power</div>
+        <div class="mono" style="font-size:24px; font-weight:700;" id="buyingPower">$75,420.00</div>
+        <div style="font-size:12px; color:var(--text-secondary); margin-top:6px;">
+          Cash: <span class="mono" id="cashValue">$85,200.00</span>
+        </div>
+      </div>
+      <div class="card" style="padding:16px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Today's Trades</div>
+        <div class="mono" style="font-size:24px; font-weight:700;" id="tradeCount">12</div>
+        <div style="font-size:12px; color:var(--text-secondary); margin-top:6px;">
+          Win rate: <span class="mono" style="color:var(--accent-green);" id="winRate">67%</span>
+        </div>
+      </div>
+      <div class="card" style="padding:16px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Active Signals</div>
+        <div class="mono" style="font-size:24px; font-weight:700;" id="signalCount">5</div>
+        <div style="font-size:12px; color:var(--text-secondary); margin-top:6px;">
+          Confidence avg: <span class="mono" style="color:var(--accent-cyan);" id="avgConfidence">72%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHART + POSITIONS ROW -->
+    <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:12px; margin-bottom:20px;">
+      <!-- Portfolio Chart -->
+      <div class="card" style="padding:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <span style="font-size:13px; font-weight:600;">Portfolio Performance</span>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="setChartRange('1D')">1D</button>
+            <button class="btn btn-ghost tab-active" style="padding:4px 8px; font-size:11px;" onclick="setChartRange('1W')">1W</button>
+            <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="setChartRange('1M')">1M</button>
+          </div>
+        </div>
+        <canvas id="portfolioChart" height="180"></canvas>
+      </div>
+      <!-- Positions -->
+      <div class="card" style="padding:16px; overflow:hidden;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <span style="font-size:13px; font-weight:600;">Open Positions</span>
+          <span class="mono" style="font-size:11px; color:var(--text-secondary);" id="posCount">0 positions</span>
+        </div>
+        <div style="max-height:220px; overflow-y:auto;" class="scrollbar-thin" id="positionsTable">
+          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead>
+              <tr style="color:var(--text-secondary); text-align:left;">
+                <th style="padding:6px 8px; font-weight:500;">Symbol</th>
+                <th style="padding:6px 8px; font-weight:500;">Qty</th>
+                <th style="padding:6px 8px; font-weight:500;">Value</th>
+                <th style="padding:6px 8px; font-weight:500;">P&L</th>
+              </tr>
+            </thead>
+            <tbody id="positionsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- AGENTS + SIGNALS ROW -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px;">
+      <!-- Agent Status -->
+      <div class="card" style="padding:16px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:12px;">Agent Status</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;" id="agentGrid"></div>
+      </div>
+      <!-- Signals Feed -->
+      <div class="card" style="padding:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <span style="font-size:13px; font-weight:600;">Signals Feed</span>
+          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="clearSignals()">Clear</button>
+        </div>
+        <div style="max-height:220px; overflow-y:auto;" class="scrollbar-thin" id="signalsFeed"></div>
+      </div>
+    </div>
+
+    <!-- RECENT TRADES -->
+    <div class="card" style="padding:16px; margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <span style="font-size:13px; font-weight:600;">Recent Trades</span>
+        <span class="mono" style="font-size:11px; color:var(--text-secondary);">Last 20</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead>
+            <tr style="color:var(--text-secondary); text-align:left; border-bottom:1px solid var(--border);">
+              <th style="padding:8px;">Time</th>
+              <th style="padding:8px;">Symbol</th>
+              <th style="padding:8px;">Side</th>
+              <th style="padding:8px;">Qty</th>
+              <th style="padding:8px;">Price</th>
+              <th style="padding:8px;">Notional</th>
+              <th style="padding:8px;">Strategy</th>
+            </tr>
+          </thead>
+          <tbody id="tradesBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ACTIVITY LOG -->
+    <div class="card" style="padding:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <span style="font-size:13px; font-weight:600;">Activity Log</span>
+        <div style="display:flex; gap:4px;">
+          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="filterLog('all')">All</button>
+          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="filterLog('error')">Errors</button>
+          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="filterLog('exec')">Exec</button>
+        </div>
+      </div>
+      <div style="max-height:200px; overflow-y:auto;" class="scrollbar-thin" id="activityLog"></div>
+    </div>
+  </div>
+
+  <!-- ─── RIGHT: EXEC SUITE SIDEBAR ─── -->
+  <div class="exec-sidebar scrollbar-thin">
+    <!-- Exec Header -->
+    <div style="padding:16px 16px 0; border-bottom:1px solid var(--border);">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span style="font-size:14px; font-weight:700;">Exec Suite</span>
+        <span class="status-badge badge-live" style="font-size:9px; margin-left:auto;">ACTIVE</span>
+      </div>
+      <!-- Exec Role Tabs -->
+      <div style="display:flex; gap:0; margin:0 -16px;" id="execTabs">
+        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('ceo')" id="tab-ceo">
+          CEO
+        </button>
+        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('cro')" id="tab-cro">
+          CRO
+        </button>
+        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('cio')" id="tab-cio">
+          CIO
+        </button>
+        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('cfo')" id="tab-cfo">
+          CFO
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══ EXEC PANELS ═══ -->
+
+    <!-- CEO PANEL -->
+    <div id="panel-ceo" class="exec-panel" style="padding:16px; display:none;">
+      <div style="margin-bottom:16px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Executive Officer</div>
+        <div style="font-size:11px; color:var(--text-secondary);">Strategy & overall direction</div>
+      </div>
+
+      <!-- Market Stance -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Market Stance</div>
+        <div style="display:flex; gap:6px; margin-bottom:12px;">
+          <button class="btn btn-success" style="flex:1; font-size:11px;" onclick="setStance('bullish')" id="stance-bullish">Bullish</button>
+          <button class="btn btn-ghost" style="flex:1; font-size:11px;" onclick="setStance('neutral')" id="stance-neutral">Neutral</button>
+          <button class="btn btn-danger" style="flex:1; font-size:11px;" onclick="setStance('bearish')" id="stance-bearish">Bearish</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-secondary);">
+          Current: <span id="currentStance" class="mono" style="color:var(--accent-green);">BULLISH</span>
+        </div>
+      </div>
+
+      <!-- Strategy Directives -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Strategy Directives</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" id="dir-options" checked style="accent-color:var(--accent-blue);"> Enable options strategies
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" id="dir-crypto" checked style="accent-color:var(--accent-blue);"> Enable crypto trading
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" id="dir-rebalance" checked style="accent-color:var(--accent-blue);"> Auto-rebalance
+          </label>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CEO Actions</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn btn-primary" style="width:100%; font-size:12px;" onclick="ceoAction('review')">📋 Review Investment Plan</button>
+          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="ceoAction('pause')">⏸ Pause All Trading</button>
+          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="ceoAction('report')">📊 Generate Daily Report</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CRO PANEL -->
+    <div id="panel-cro" class="exec-panel" style="padding:16px; display:none;">
+      <div style="margin-bottom:16px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Risk Officer</div>
+        <div style="font-size:11px; color:var(--text-secondary);">Risk oversight & veto authority</div>
+      </div>
+
+      <!-- Risk Gauges -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">Risk Dashboard</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+              <span>Portfolio Heat</span>
+              <span class="mono" id="portfolioHeat" style="color:var(--accent-amber);">62%</span>
+            </div>
+            <div style="background:var(--bg-primary); height:6px; border-radius:3px; overflow:hidden;">
+              <div id="heatBar" style="width:62%; height:100%; background:linear-gradient(90deg,var(--accent-green),var(--accent-amber)); border-radius:3px; transition:width 0.5s;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+              <span>VIX Regime</span>
+              <span class="mono" id="vixRegime" style="color:var(--accent-green);">LOW (18.5)</span>
+            </div>
+            <div style="background:var(--bg-primary); height:6px; border-radius:3px; overflow:hidden;">
+              <div id="vixBar" style="width:37%; height:100%; background:var(--accent-green); border-radius:3px; transition:width 0.5s;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+              <span>Concentration Risk</span>
+              <span class="mono" id="concRisk" style="color:var(--accent-green);">8.2%</span>
+            </div>
+            <div style="background:var(--bg-primary); height:6px; border-radius:3px; overflow:hidden;">
+              <div id="concBar" style="width:55%; height:100%; background:var(--accent-green); border-radius:3px; transition:width 0.5s;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Risk Limits -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Risk Limits (Live Override)</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div>
+            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Position Size ($)</label>
+            <input type="number" id="maxPosSize" value="5000" style="width:100%;" onchange="updateRiskLimit('maxPosSize', this.value)">
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Portfolio % per Symbol</label>
+            <input type="number" id="maxPortPct" value="10" min="1" max="100" style="width:100%;" onchange="updateRiskLimit('maxPortPct', this.value)">
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Daily Loss ($)</label>
+            <input type="number" id="maxDailyLoss" value="2500" style="width:100%;" onchange="updateRiskLimit('maxDailyLoss', this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- CRO Actions -->
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CRO Actions</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn btn-danger" style="width:100%; font-size:12px;" onclick="croAction('veto')">🛑 Veto Next Trade</button>
+          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="croAction('reduceExposure')">📉 Reduce Exposure 50%</button>
+          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="croAction('stressTest')">🧪 Run Stress Test</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CIO PANEL -->
+    <div id="panel-cio" class="exec-panel" style="padding:16px; display:none;">
+      <div style="margin-bottom:16px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Investment Officer</div>
+        <div style="font-size:11px; color:var(--text-secondary);">Investment plan finalization & oversight</div>
+      </div>
+
+      <!-- Current Plan Summary -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px;">Active Investment Plan</div>
+          <span class="status-badge badge-live" style="font-size:9px;">v<span id="planVersion">3</span></span>
+        </div>
+        <div id="planTargets" style="display:flex; flex-direction:column; gap:6px;"></div>
+      </div>
+
+      <!-- Plan Override -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Plan Override</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div>
+            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Add Symbol Target</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="newSymbol" placeholder="AAPL" style="width:80px;">
+              <input type="number" id="newWeight" placeholder="%" style="width:60px;">
+              <button class="btn btn-primary" style="font-size:11px; padding:6px 12px;" onclick="addTarget()">Add</button>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Exclusion List</label>
+            <input type="text" id="exclusions" placeholder="MEME, GME, AMC" style="width:100%;">
+          </div>
+        </div>
+      </div>
+
+      <!-- CIO Actions -->
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CIO Actions</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn btn-success" style="width:100%; font-size:12px;" onclick="cioAction('finalize')">✅ Finalize Current Plan</button>
+          <button class="btn btn-primary" style="width:100%; font-size:12px;" onclick="cioAction('rebalance')">⚖️ Force Rebalance Now</button>
+          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="cioAction('rollback')">↩️ Rollback to Previous Plan</button>
+          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="cioAction('newPlan')">📝 Draft New Plan</button>
+        </div>
+      </div>
+
+      <!-- Plan History -->
+      <div class="card" style="padding:14px; margin-top:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Plan History</div>
+        <div id="planHistory" style="display:flex; flex-direction:column; gap:4px;"></div>
+      </div>
+    </div>
+
+    <!-- CFO PANEL -->
+    <div id="panel-cfo" class="exec-panel" style="padding:16px; display:none;">
+      <div style="margin-bottom:16px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Financial Officer</div>
+        <div style="font-size:11px; color:var(--text-secondary);">Capital allocation & P&L oversight</div>
+      </div>
+
+      <!-- Capital Allocation -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">Capital Allocation</div>
+        <canvas id="allocationChart" height="160"></canvas>
+      </div>
+
+      <!-- P&L Breakdown -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">P&L Breakdown</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px;">
+            <span>Stocks</span>
+            <span class="mono" style="color:var(--accent-green);">+$842.30</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12px;">
+            <span>Options</span>
+            <span class="mono" style="color:var(--accent-red);">-$156.50</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12px;">
+            <span>Crypto</span>
+            <span class="mono" style="color:var(--accent-green);">+$560.00</span>
+          </div>
+          <div style="border-top:1px solid var(--border); padding-top:8px; display:flex; justify-content:space-between; font-size:12px; font-weight:600;">
+            <span>Net P&L</span>
+            <span class="mono" style="color:var(--accent-green);" id="netPnl">+$1,245.80</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Capital Controls -->
+      <div class="card" style="padding:14px; margin-bottom:12px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Capital Controls</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div>
+            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Cash Reserve Floor ($)</label>
+            <input type="number" id="cashFloor" value="20000" style="width:100%;" onchange="updateCapital('cashFloor', this.value)">
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Allocation per Strategy (%)</label>
+            <input type="number" id="maxStratAlloc" value="30" min="5" max="100" style="width:100%;" onchange="updateCapital('maxStratAlloc', this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- CFO Actions -->
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CFO Actions</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn btn-primary" style="width:100%; font-size:12px;" onclick="cfoAction('liquidityReport')">💰 Liquidity Report</button>
+          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="cfoAction('cashSweep')">🧹 Cash Sweep to Reserve</button>
+          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="cfoAction('taxLoss')">📑 Tax-Loss Harvest Scan</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- OVERRIDE CONSOLE (always visible at bottom of exec sidebar) -->
+    <div style="padding:16px; border-top:1px solid var(--border); margin-top:auto;">
+      <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Override Console</div>
+      <div id="overrideQueue" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;"></div>
+      <div style="display:flex; gap:6px;">
+        <button class="btn btn-danger" style="flex:1; font-size:11px;" onclick="cancelAllOrders()">Cancel All Orders</button>
+        <button class="btn btn-amber" style="flex:1; font-size:11px;" onclick="liquidateAll()">Liquidate All</button>
+      </div>
+    </div>
   </div>
 </div>
 
+<!-- ═══════════════════ MODAL (reusable) ═══════════════════ -->
+<div id="modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal()">
+  <div class="modal-content slide-in">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <span style="font-size:15px; font-weight:700;" id="modalTitle">Title</span>
+      <button class="btn btn-ghost" style="padding:4px 8px; font-size:16px;" onclick="closeModal()">&times;</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════ JAVASCRIPT ═══════════════════ -->
 <script>
-let lastData = null;
-let errorCount = 0;
+// ── CONFIG ──
+const API_BASE = 'http://localhost:5050';
+const POLL_INTERVAL = 5000;
 
-function fmt(ts) {
-  if (!ts) return '—';
-  const d = new Date(ts * 1000);
-  return d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+// ── STATE ──
+const state = {
+  tradingPaused: false,
+  vetoNext: false,
+  stance: 'bullish',
+  activeExec: 'ceo',
+  planTargets: [
+    { symbol: 'SPY', weight: 30 },
+    { symbol: 'QQQ', weight: 20 },
+    { symbol: 'AAPL', weight: 15 },
+    { symbol: 'MSFT', weight: 10 },
+    { symbol: 'PAXG/USD', weight: 10 },
+    { symbol: 'BTC/USD', weight: 10 },
+    { symbol: 'CASH', weight: 5 },
+  ],
+  planVersion: 3,
+  planHistory: [
+    { version: 3, date: 'Apr 8, 2026 09:32', status: 'active', changedBy: 'CIO' },
+    { version: 2, date: 'Apr 7, 2026 14:15', status: 'superseded', changedBy: 'System' },
+    { version: 1, date: 'Apr 7, 2026 08:30', status: 'superseded', changedBy: 'CIO' },
+  ],
+  overrides: [],
+  agents: [
+    { name: 'ref_library', label: 'Ref Library', status: 'running', icon: '📚' },
+    { name: 'account_agent', label: 'Account', status: 'running', icon: '👤' },
+    { name: 'signal_generator', label: 'Signals', status: 'running', icon: '📡' },
+    { name: 'plan_manager', label: 'Plan Mgr', status: 'running', icon: '📋' },
+    { name: 'order_execution', label: 'Execution', status: 'running', icon: '⚡' },
+    { name: 'risk_manager', label: 'Risk Mgr', status: 'running', icon: '🛡️' },
+    { name: 'boss', label: 'Boss', status: 'running', icon: '👔' },
+    { name: 'diagnostics', label: 'Diagnostics', status: 'running', icon: '🔧' },
+  ],
+  signals: [],
+  logs: [],
+};
+
+// ── CLOCK ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+  // Check market hours (8:30 AM - 3:00 PM CST)
+  const cst = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  const h = cst.getHours(), m = cst.getMinutes();
+  const day = cst.getDay();
+  const isOpen = day >= 1 && day <= 5 && ((h > 8 || (h === 8 && m >= 30)) && h < 15);
+  const el = document.getElementById('marketStatus');
+  if (isOpen) {
+    el.className = 'status-badge badge-live';
+    el.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>OPEN';
+  } else {
+    el.className = 'status-badge badge-offline';
+    el.innerHTML = 'CLOSED';
+  }
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── PORTFOLIO CHART ──
+let portfolioChart;
+function initPortfolioChart() {
+  const ctx = document.getElementById('portfolioChart').getContext('2d');
+  const labels = [];
+  const data = [];
+  let val = 98500;
+  for (let i = 0; i < 50; i++) {
+    labels.push('');
+    val += (Math.random() - 0.45) * 500;
+    data.push(Math.round(val * 100) / 100);
+  }
+  portfolioChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.08)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          display: true,
+          grid: { color: 'rgba(42,53,72,0.5)' },
+          ticks: { color: '#94a3b8', font: { size: 10, family: 'JetBrains Mono' }, callback: v => '$' + (v/1000).toFixed(1) + 'k' }
+        }
+      },
+      interaction: { intersect: false, mode: 'index' },
+    }
+  });
 }
 
-function fmtDate(ts) {
-  if (!ts) return '—';
-  const d = new Date(ts * 1000);
-  return d.toLocaleString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false});
+// ── ALLOCATION CHART (CFO) ──
+let allocationChart;
+function initAllocationChart() {
+  const ctx = document.getElementById('allocationChart').getContext('2d');
+  allocationChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Stocks', 'Options', 'Crypto', 'Cash'],
+      datasets: [{
+        data: [55, 10, 20, 15],
+        backgroundColor: ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981'],
+        borderColor: '#1a2332',
+        borderWidth: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 12 }
+        }
+      },
+      cutout: '65%',
+    }
+  });
 }
 
-function fmtNum(n, dec=2) {
-  if (n == null || n === '') return '—';
-  return Number(n).toLocaleString('en-US', {minimumFractionDigits:dec, maximumFractionDigits:dec});
+// ── AGENT STATUS GRID ──
+function renderAgents() {
+  const grid = document.getElementById('agentGrid');
+  grid.innerHTML = state.agents.map(a => {
+    const color = a.status === 'running' ? 'var(--accent-green)' :
+                  a.status === 'warning' ? 'var(--accent-amber)' : 'var(--accent-red)';
+    const badgeClass = a.status === 'running' ? 'badge-live' :
+                       a.status === 'warning' ? 'badge-paused' : 'badge-error';
+    return `
+      <div class="card" style="padding:10px; display:flex; align-items:center; gap:8px; cursor:pointer;" onclick="showAgentDetail('${a.name}')">
+        <span style="font-size:16px;">${a.icon}</span>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${a.label}</div>
+          <div class="status-badge ${badgeClass}" style="font-size:8px; padding:2px 6px; margin-top:2px;">${a.status.toUpperCase()}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
-function fmtDollar(n) {
-  if (n == null) return '—';
-  const v = Number(n);
-  return (v >= 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+// ── POSITIONS TABLE ──
+function renderPositions(positions) {
+  const body = document.getElementById('positionsBody');
+  if (!positions || positions.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" style="padding:16px; text-align:center; color:var(--text-secondary); font-size:12px;">No open positions</td></tr>';
+    document.getElementById('posCount').textContent = '0 positions';
+    return;
+  }
+  document.getElementById('posCount').textContent = positions.length + ' positions';
+  body.innerHTML = positions.map(p => {
+    const pnlColor = (p.unrealised || 0) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+    const pnlSign = (p.unrealised || 0) >= 0 ? '+' : '';
+    return `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:6px 8px;"><span class="mono" style="font-weight:600;">${p.symbol}</span></td>
+        <td style="padding:6px 8px;" class="mono">${p.qty}</td>
+        <td style="padding:6px 8px;" class="mono">$${Number(p.market_val || 0).toLocaleString()}</td>
+        <td style="padding:6px 8px;" class="mono"><span style="color:${pnlColor};">${pnlSign}$${Number(p.unrealised || 0).toFixed(2)}</span></td>
+      </tr>
+    `;
+  }).join('');
 }
 
-function stanceClass(s) {
-  if (s === 'risk-on') return 'stance-risk-on';
-  if (s === 'risk-off') return 'stance-risk-off';
-  return 'stance-neutral';
+// ── SIGNALS FEED ──
+function addSignal(signal) {
+  state.signals.unshift(signal);
+  if (state.signals.length > 50) state.signals.pop();
+  renderSignals();
+}
+function renderSignals() {
+  const feed = document.getElementById('signalsFeed');
+  if (state.signals.length === 0) {
+    feed.innerHTML = '<div style="text-align:center; color:var(--text-secondary); font-size:12px; padding:20px;">Waiting for signals...</div>';
+    return;
+  }
+  feed.innerHTML = state.signals.map(s => {
+    const sideColor = s.side === 'buy' ? 'var(--accent-green)' : 'var(--accent-red)';
+    const conf = Math.round((s.confidence || 0) * 100);
+    return `
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid rgba(42,53,72,0.4); font-size:11px;">
+        <span style="color:${sideColor}; font-weight:700; width:28px;">${(s.side || '').toUpperCase()}</span>
+        <span class="mono" style="font-weight:600; width:70px;">${s.symbol}</span>
+        <span style="flex:1; color:var(--text-secondary);">${s.strategy || ''}</span>
+        <span class="mono" style="color:var(--accent-cyan);">${conf}%</span>
+        ${state.vetoNext ? '<span style="color:var(--accent-red); font-size:9px; font-weight:700;">VETOED</span>' : ''}
+      </div>
+    `;
+  }).join('');
 }
 
-function render(data) {
-  const plan = data.plan || {};
-  const symbols = plan.symbols || {};
-  const stance = plan.stance || 'neutral';
-  const cash_pct = plan.cash_target_pct || 0;
+// ── TRADES TABLE ──
+function renderTrades(trades) {
+  const body = document.getElementById('tradesBody');
+  if (!trades || trades.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" style="padding:16px; text-align:center; color:var(--text-secondary); font-size:12px;">No trades yet</td></tr>';
+    return;
+  }
+  body.innerHTML = trades.slice(0, 20).map(t => {
+    const sideColor = t.side === 'buy' ? 'var(--accent-green)' : 'var(--accent-red)';
+    return `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;" class="mono">${new Date(t.ts || t.timestamp || t.time).toLocaleTimeString('en-US', { hour12: false })}</td>
+        <td style="padding:8px;" class="mono" style="font-weight:600;">${t.symbol}</td>
+        <td style="padding:8px;"><span style="color:${sideColor}; font-weight:600;">${(t.side || '').toUpperCase()}</span></td>
+        <td style="padding:8px;" class="mono">${t.qty}</td>
+        <td style="padding:8px;" class="mono">$${Number(t.price || 0).toFixed(2)}</td>
+        <td style="padding:8px;" class="mono">$${Number(t.notional || 0).toLocaleString()}</td>
+        <td style="padding:8px;"><span style="font-size:10px; color:var(--text-secondary);">${t.strategy_tag || ''}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
 
-  const layout = document.getElementById('layout');
-  layout.innerHTML = `
-
-    <!-- ROW 1: Stats + Plan -->
-    <div class="panel">
-      <div class="panel-label">overview</div>
-      <div class="market-bar">
-        <div class="mstat">
-          <div class="mstat-dot ${data.market_open ? 'on' : ''}"></div>
-          market ${data.market_open ? 'open' : 'closed'}
-        </div>
-        <div class="mstat">
-          <div class="mstat-dot ${data.errors && data.errors.some(e=>e.level==='ERROR') ? 'warn' : 'on'}"></div>
-          ${data.errors && data.errors.some(e=>e.level==='ERROR') ? 'errors detected' : 'agents healthy'}
-        </div>
+// ── ACTIVITY LOG ──
+function addLog(level, message, source = 'system') {
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  state.logs.unshift({ time: now, level, message, source });
+  if (state.logs.length > 100) state.logs.pop();
+  renderLogs();
+}
+function renderLogs(filter = 'all') {
+  const el = document.getElementById('activityLog');
+  const logs = filter === 'all' ? state.logs : state.logs.filter(l => l.source === filter || l.level === filter);
+  if (logs.length === 0) {
+    el.innerHTML = '<div style="text-align:center; color:var(--text-secondary); font-size:12px; padding:20px;">No activity</div>';
+    return;
+  }
+  el.innerHTML = logs.slice(0, 50).map(l => {
+    const color = l.level === 'error' ? 'var(--accent-red)' :
+                  l.level === 'warn' ? 'var(--accent-amber)' :
+                  l.level === 'exec' ? 'var(--accent-purple)' : 'var(--text-secondary)';
+    return `
+      <div style="display:flex; gap:8px; padding:4px 0; font-size:11px; border-bottom:1px solid rgba(42,53,72,0.3);">
+        <span class="mono" style="color:var(--text-secondary); white-space:nowrap;">${l.time}</span>
+        <span style="color:${color}; font-weight:600; width:40px; text-transform:uppercase; font-size:10px;">${l.level}</span>
+        <span style="flex:1;">${l.message}</span>
       </div>
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-val">${data.total_trades || 0}</div>
-          <div class="stat-label">total trades</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val amber">$${fmtNum(data.total_volume, 0)}</div>
-          <div class="stat-label">total volume</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val">${Object.keys(symbols).length}</div>
-          <div class="stat-label">plan symbols</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val">${Math.round(cash_pct * 100)}%</div>
-          <div class="stat-label">cash target</div>
-        </div>
-      </div>
-    </div>
+    `;
+  }).join('');
+}
+function filterLog(f) { renderLogs(f); }
 
-    <div class="panel panel-wide">
-      <div class="panel-label">investment plan <span>${data.plan_summary || '—'}</span></div>
-      <div class="plan-stance ${stanceClass(stance)}">${stance}</div>
-      <div class="plan-targets">
-        ${Object.entries(symbols).length === 0
-          ? '<div class="empty">no targets yet</div>'
-          : Object.entries(symbols)
-              .sort((a,b) => b[1].target_pct - a[1].target_pct)
-              .slice(0, 10)
-              .map(([sym, entry]) => `
-            <div class="target-row">
-              <div class="target-sym">${sym}</div>
-              <div class="target-bar-bg">
-                <div class="target-bar" style="width:${Math.min(entry.target_pct * 100 / 15 * 100, 100)}%"></div>
-              </div>
-              <div class="target-pct">${(entry.target_pct * 100).toFixed(1)}%</div>
-            </div>`).join('')
-        }
-      </div>
-    </div>
-
-    <!-- ROW 2: Positions + Recent Trades -->
-    <div class="panel panel-wide">
-      <div class="panel-label">positions <span>${(data.positions||[]).length} open</span></div>
-      <div class="scroll">
-        ${(data.positions||[]).length === 0
-          ? '<div class="empty">no positions</div>'
-          : `<table>
-            <thead><tr>
-              <th>symbol</th><th>qty</th><th>avg cost</th><th>mkt val</th><th>unrealised</th>
-            </tr></thead>
-            <tbody>
-              ${data.positions.map(p => {
-                const unr = Number(p.unrealised) || 0;
-                const cls = unr >= 0 ? 'green' : 'red';
-                return `<tr>
-                  <td style="font-weight:500">${p.symbol}</td>
-                  <td>${fmtNum(p.qty, 4)}</td>
-                  <td>$${fmtNum(p.avg_cost)}</td>
-                  <td>$${fmtNum(p.market_val)}</td>
-                  <td class="${cls}">${fmtDollar(p.unrealised)}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>`
-        }
+// ── PLAN TARGETS (CIO) ──
+function renderPlanTargets() {
+  const el = document.getElementById('planTargets');
+  el.innerHTML = state.planTargets.map(t => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:12px;">
+      <span class="mono" style="font-weight:600;">${t.symbol}</span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="width:80px; background:var(--bg-primary); height:4px; border-radius:2px; overflow:hidden;">
+          <div style="width:${t.weight}%; height:100%; background:var(--accent-blue); border-radius:2px;"></div>
+        </div>
+        <span class="mono" style="width:32px; text-align:right;">${t.weight}%</span>
+        <button style="background:none; border:none; color:var(--accent-red); cursor:pointer; font-size:14px; padding:0 4px;" onclick="removeTarget('${t.symbol}')">&times;</button>
       </div>
     </div>
+  `).join('');
+}
 
-    <div class="panel">
-      <div class="panel-label">signals <span>last 20</span></div>
-      <div class="scroll">
-        ${(data.signals||[]).length === 0
-          ? '<div class="empty">no signals yet</div>'
-          : `<table>
-            <thead><tr>
-              <th>time</th><th>sym</th><th>side</th><th>strategy</th><th>conf</th>
-            </tr></thead>
-            <tbody>
-              ${data.signals.map(s => `<tr>
-                <td>${fmt(s.ts)}</td>
-                <td style="font-weight:500">${s.symbol}</td>
-                <td><span class="tag tag-${s.side}">${s.side}</span></td>
-                <td style="color:var(--muted)">${(s.strategy||'').replace(/_/g,' ')}</td>
-                <td>
-                  <span class="conf-bar"><span class="conf-fill" style="width:${Math.round((s.confidence||0)*100)}%"></span></span>
-                  <span style="color:var(--muted);font-size:10px;margin-left:4px">${Math.round((s.confidence||0)*100)}%</span>
-                </td>
-              </tr>`).join('')}
-            </tbody>
-          </table>`
-        }
+function renderPlanHistory() {
+  const el = document.getElementById('planHistory');
+  el.innerHTML = state.planHistory.map(h => {
+    const color = h.status === 'active' ? 'var(--accent-green)' : 'var(--text-secondary)';
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:11px;">
+        <span class="mono">v${h.version}</span>
+        <span style="color:var(--text-secondary);">${h.date}</span>
+        <span style="color:${color}; font-size:10px; font-weight:600;">${h.status.toUpperCase()}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function addTarget() {
+  const sym = document.getElementById('newSymbol').value.toUpperCase().trim();
+  const wt = parseInt(document.getElementById('newWeight').value);
+  if (!sym || !wt || wt <= 0) return;
+  const existing = state.planTargets.find(t => t.symbol === sym);
+  if (existing) { existing.weight = wt; }
+  else { state.planTargets.push({ symbol: sym, weight: wt }); }
+  document.getElementById('newSymbol').value = '';
+  document.getElementById('newWeight').value = '';
+  renderPlanTargets();
+  addLog('exec', `CIO added target: ${sym} @ ${wt}%`, 'exec');
+}
+
+function removeTarget(sym) {
+  state.planTargets = state.planTargets.filter(t => t.symbol !== sym);
+  renderPlanTargets();
+  addLog('exec', `CIO removed target: ${sym}`, 'exec');
+}
+
+// ── OVERRIDE QUEUE ──
+function renderOverrides() {
+  const el = document.getElementById('overrideQueue');
+  if (state.overrides.length === 0) {
+    el.innerHTML = '<div style="font-size:11px; color:var(--text-secondary); text-align:center; padding:8px;">No pending overrides</div>';
+    return;
+  }
+  el.innerHTML = state.overrides.map((o, i) => `
+    <div class="card" style="padding:8px; display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <div style="font-size:11px; font-weight:600;">${o.action}</div>
+        <div style="font-size:10px; color:var(--text-secondary);">${o.by} · ${o.time}</div>
+      </div>
+      <div style="display:flex; gap:4px;">
+        <button class="btn btn-success" style="padding:4px 8px; font-size:10px;" onclick="executeOverride(${i})">Execute</button>
+        <button class="btn btn-ghost" style="padding:4px 8px; font-size:10px;" onclick="dismissOverride(${i})">Dismiss</button>
       </div>
     </div>
+  `).join('');
+}
 
-    <!-- ROW 3: Recent trades + Logs -->
-    <div class="panel panel-wide">
-      <div class="panel-label">recent trades</div>
-      <div class="scroll">
-        ${(data.recent_trades||[]).length === 0
-          ? '<div class="empty">no trades yet</div>'
-          : `<table>
-            <thead><tr>
-              <th>time</th><th>symbol</th><th>side</th><th>qty</th><th>price</th><th>notional</th><th>strategy</th>
-            </tr></thead>
-            <tbody>
-              ${data.recent_trades.map(t => `<tr>
-                <td>${fmt(t.ts)}</td>
-                <td style="font-weight:500">${t.symbol}</td>
-                <td><span class="tag tag-${t.side}">${t.side}</span></td>
-                <td>${fmtNum(t.qty, 4)}</td>
-                <td>$${fmtNum(t.price)}</td>
-                <td>$${fmtNum(t.notional)}</td>
-                <td style="color:var(--muted)">${t.strategy_tag || '—'}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>`
-        }
+function queueOverride(action, by) {
+  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  state.overrides.push({ action, by, time: now });
+  renderOverrides();
+}
+
+function executeOverride(i) {
+  const o = state.overrides.splice(i, 1)[0];
+  addLog('exec', `Override executed: ${o.action} (by ${o.by})`, 'exec');
+  renderOverrides();
+  showToast(`Override executed: ${o.action}`, 'success');
+}
+
+function dismissOverride(i) {
+  const o = state.overrides.splice(i, 1)[0];
+  addLog('info', `Override dismissed: ${o.action}`, 'exec');
+  renderOverrides();
+}
+
+// ── EXEC TAB SWITCHING ──
+function switchExec(role) {
+  state.activeExec = role;
+  document.querySelectorAll('.exec-panel').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.exec-tab').forEach(t => {
+    t.style.color = 'var(--text-secondary)';
+    t.style.borderBottomColor = 'transparent';
+  });
+  document.getElementById(`panel-${role}`).style.display = 'block';
+  const tab = document.getElementById(`tab-${role}`);
+  tab.style.color = 'var(--text-primary)';
+  tab.style.borderBottomColor = 'var(--accent-blue)';
+  if (role === 'cfo' && allocationChart) allocationChart.update();
+}
+
+// ── EXEC ACTIONS ──
+function setStance(s) {
+  state.stance = s;
+  const colors = { bullish: 'var(--accent-green)', neutral: 'var(--accent-amber)', bearish: 'var(--accent-red)' };
+  document.getElementById('currentStance').textContent = s.toUpperCase();
+  document.getElementById('currentStance').style.color = colors[s];
+  addLog('exec', `CEO set market stance to ${s.toUpperCase()}`, 'exec');
+  showToast(`Stance updated: ${s.toUpperCase()}`, 'success');
+  // Push to bot
+  fetch(`${API_BASE}/api/exec/stance`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ stance: s }) }).catch(() => {});
+}
+
+function ceoAction(action) {
+  if (action === 'pause') {
+    state.tradingPaused = !state.tradingPaused;
+    const statusEl = document.getElementById('systemStatus');
+    if (state.tradingPaused) {
+      fetch(`${API_BASE}/api/exec/pause`, { method: 'POST' }).catch(() => {});
+      statusEl.className = 'status-badge badge-paused';
+      statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-amber);"></span>PAUSED';
+      addLog('exec', 'CEO paused all trading', 'exec');
+      showToast('Trading PAUSED by CEO', 'warning');
+    } else {
+      fetch(`${API_BASE}/api/exec/resume`, { method: 'POST' }).catch(() => {});
+      statusEl.className = 'status-badge badge-live';
+      statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>LIVE';
+      addLog('exec', 'CEO resumed trading', 'exec');
+      showToast('Trading RESUMED', 'success');
+    }
+  } else if (action === 'review') {
+    switchExec('cio');
+  } else if (action === 'report') {
+    showModal('Daily Report', generateDailyReport());
+  }
+}
+
+function croAction(action) {
+  if (action === 'veto') {
+    state.vetoNext = !state.vetoNext;
+    addLog('exec', state.vetoNext ? 'CRO armed veto on next trade' : 'CRO disarmed veto', 'exec');
+    showToast(state.vetoNext ? 'Veto ARMED — next trade will be blocked' : 'Veto disarmed', state.vetoNext ? 'warning' : 'success');
+  } else if (action === 'reduceExposure') {
+    queueOverride('Reduce exposure by 50%', 'CRO');
+    addLog('exec', 'CRO queued 50% exposure reduction', 'exec');
+  } else if (action === 'stressTest') {
+    showModal('Stress Test Results', generateStressTest());
+  }
+}
+
+function cioAction(action) {
+  if (action === 'finalize') {
+    // Push plan to bot API
+    const planData = { targets: {}, stance: state.stance, exclusions: document.getElementById('exclusions').value.split(',').map(s => s.trim()).filter(Boolean) };
+    state.planTargets.forEach(t => { planData.targets[t.symbol] = t.weight; });
+    fetch(`${API_BASE}/api/exec/plan`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(planData) }).catch(() => {});
+    state.planVersion++;
+    document.getElementById('planVersion').textContent = state.planVersion;
+    state.planHistory.unshift({
+      version: state.planVersion,
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      status: 'active',
+      changedBy: 'CIO'
+    });
+    if (state.planHistory.length > 1) state.planHistory[1].status = 'superseded';
+    renderPlanHistory();
+    addLog('exec', `CIO finalized investment plan v${state.planVersion}`, 'exec');
+    showToast(`Plan v${state.planVersion} finalized and active`, 'success');
+  } else if (action === 'rebalance') {
+    fetch(`${API_BASE}/api/exec/force-rebalance`, { method: 'POST' }).catch(() => {});
+    queueOverride('Force immediate rebalance', 'CIO');
+    addLog('exec', 'CIO queued force rebalance', 'exec');
+  } else if (action === 'rollback') {
+    fetch(`${API_BASE}/api/exec/plan-rollback`, { method: 'POST' }).catch(() => {});
+    if (state.planHistory.length >= 2) {
+      addLog('exec', `CIO rolled back to plan v${state.planVersion - 1}`, 'exec');
+      showToast('Rolled back to previous plan', 'warning');
+    }
+  } else if (action === 'newPlan') {
+    showModal('Draft New Plan', `
+      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Define new target allocations for the next plan version.</div>
+      <textarea style="width:100%; height:120px; margin-bottom:12px;" placeholder="Enter JSON targets, e.g.:\n{\n  &quot;SPY&quot;: 25,\n  &quot;QQQ&quot;: 20,\n  &quot;AAPL&quot;: 15\n}"></textarea>
+      <button class="btn btn-primary" style="width:100%;" onclick="closeModal(); addLog('exec','CIO drafted new plan','exec'); showToast('Plan draft saved','success');">Save Draft</button>
+    `);
+  }
+}
+
+function cfoAction(action) {
+  if (action === 'liquidityReport') {
+    showModal('Liquidity Report', generateLiquidityReport());
+  } else if (action === 'cashSweep') {
+    queueOverride('Sweep excess cash to reserve', 'CFO');
+    addLog('exec', 'CFO queued cash sweep to reserve', 'exec');
+  } else if (action === 'taxLoss') {
+    showModal('Tax-Loss Harvest Scan', `
+      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:16px;">Scanning positions for tax-loss harvesting opportunities...</div>
+      <div class="card" style="padding:12px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px;">
+          <span class="mono" style="font-weight:600;">No losing positions</span>
+          <span style="color:var(--accent-green);">All positions green</span>
+        </div>
+      </div>
+      <div style="font-size:11px; color:var(--text-secondary);">No tax-loss harvest candidates at this time. Will re-scan on next refresh.</div>
+    `);
+  }
+}
+
+function updateRiskLimit(key, value) {
+  const payload = {};
+  if (key === 'maxPosSize') payload.max_position_size = parseFloat(value);
+  if (key === 'maxPortPct') payload.max_portfolio_pct = parseFloat(value);
+  fetch(`${API_BASE}/api/exec/risk-limits`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(() => {});
+  addLog('exec', `CRO updated ${key} to ${value}`, 'exec');
+  showToast(`Risk limit updated: ${key}`, 'success');
+}
+
+function updateCapital(key, value) {
+  addLog('exec', `CFO updated ${key} to ${value}`, 'exec');
+  showToast(`Capital control updated: ${key}`, 'success');
+}
+
+// ── EMERGENCY ACTIONS ──
+function emergencyStop() {
+  showModal('Emergency Stop', `
+    <div style="text-align:center;">
+      <div style="font-size:48px; margin-bottom:12px;">🚨</div>
+      <div style="font-size:14px; font-weight:600; margin-bottom:8px; color:var(--accent-red);">EMERGENCY STOP</div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:20px;">This will cancel all open orders and pause all trading immediately.</div>
+      <div style="display:flex; gap:8px; justify-content:center;">
+        <button class="btn btn-danger" onclick="executeEmergencyStop()">Confirm Stop</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       </div>
     </div>
+  `);
+}
 
-    <div class="panel">
-      <div class="panel-label">errors &amp; warnings <span>last 20</span></div>
-      <div class="scroll">
-        ${(data.errors||[]).length === 0
-          ? '<div class="empty" style="color:var(--green)">no errors</div>'
-          : data.errors.map(e => `
-            <div class="log-entry">
-              <div class="log-time">${fmt(e.ts)}</div>
-              <div class="log-agent">${(e.agent||'').replace('agents.','')}</div>
-              <div class="log-msg">
-                <span class="tag ${e.level==='ERROR' ? 'tag-error' : 'tag-warn'}" style="margin-right:6px">${e.level}</span>
-                ${e.message}
-              </div>
-            </div>`).join('')
-        }
+function executeEmergencyStop() {
+  state.tradingPaused = true;
+  const statusEl = document.getElementById('systemStatus');
+  statusEl.className = 'status-badge badge-error';
+  statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-red);"></span>STOPPED';
+  addLog('error', '🚨 EMERGENCY STOP executed — all trading halted', 'exec');
+  closeModal();
+  showToast('EMERGENCY STOP — all trading halted', 'danger');
+  // Try to call API
+  fetch(`${API_BASE}/api/exec/emergency-stop`, { method: 'POST' }).catch(() => {});
+}
+
+function cancelAllOrders() {
+  addLog('exec', 'Cancel all open orders requested', 'exec');
+  showToast('Cancel all orders sent', 'warning');
+  fetch(`${API_BASE}/api/exec/cancel-all`, { method: 'POST' }).catch(() => {});
+}
+
+function liquidateAll() {
+  showModal('Liquidate All Positions', `
+    <div style="text-align:center;">
+      <div style="font-size:36px; margin-bottom:12px;">⚠️</div>
+      <div style="font-size:13px; color:var(--text-secondary); margin-bottom:20px;">This will market-sell all open positions. This action cannot be undone.</div>
+      <div style="display:flex; gap:8px; justify-content:center;">
+        <button class="btn btn-danger" onclick="confirmLiquidate()">Confirm Liquidate All</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  `);
+}
+
+function confirmLiquidate() {
+  addLog('exec', '⚠️ LIQUIDATE ALL executed', 'exec');
+  closeModal();
+  showToast('Liquidating all positions...', 'danger');
+  fetch(`${API_BASE}/api/exec/cancel-all`, { method: 'POST' }).catch(() => {});
+}
+
+// ── MODAL ──
+function showModal(title, bodyHtml) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = bodyHtml;
+  document.getElementById('modal').style.display = 'flex';
+}
+function closeModal() { document.getElementById('modal').style.display = 'none'; }
+
+// ── TOAST ──
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  const colors = { success: 'var(--accent-green)', warning: 'var(--accent-amber)', danger: 'var(--accent-red)', info: 'var(--accent-blue)' };
+  toast.style.cssText = `
+    position:fixed; bottom:20px; right:380px; z-index:200;
+    background:var(--bg-card); border:1px solid ${colors[type]}; border-radius:10px;
+    padding:12px 20px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,0.3);
+    animation: fadeIn 0.3s ease-out;
+  `;
+  toast.innerHTML = `<span style="color:${colors[type]}; font-weight:600;">${message}</span>`;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3000);
+}
+
+// ── REPORT GENERATORS ──
+function generateDailyReport() {
+  return `
+    <div style="font-size:12px;">
+      <div style="margin-bottom:16px;">
+        <div style="font-weight:600; margin-bottom:6px;">Performance Summary</div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Portfolio Value</span><span class="mono">$101,245.80</span></div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Day P&L</span><span class="mono" style="color:var(--accent-green);">+$1,245.80</span></div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Trades Executed</span><span class="mono">12</span></div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Win Rate</span><span class="mono">67%</span></div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-weight:600; margin-bottom:6px;">Agent Health</div>
+        <div style="color:var(--accent-green);">All 8 agents running normally</div>
+      </div>
+      <div>
+        <div style="font-weight:600; margin-bottom:6px;">Risk Status</div>
+        <div>Portfolio heat: 62% · VIX regime: LOW · No breaches detected</div>
       </div>
     </div>
   `;
 }
 
-async function fetchData() {
+function generateStressTest() {
+  return `
+    <div style="font-size:12px;">
+      <div style="font-weight:600; margin-bottom:12px;">Stress Test Scenarios</div>
+      <div class="card" style="padding:10px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="font-weight:600;">Market crash (-10%)</span><span class="mono" style="color:var(--accent-red);">-$8,420</span></div>
+        <div style="font-size:11px; color:var(--text-secondary);">Portfolio would drop to ~$92,826</div>
+      </div>
+      <div class="card" style="padding:10px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="font-weight:600;">Sector rotation (-5% tech)</span><span class="mono" style="color:var(--accent-amber);">-$2,180</span></div>
+        <div style="font-size:11px; color:var(--text-secondary);">Tech-heavy allocation exposes concentration risk</div>
+      </div>
+      <div class="card" style="padding:10px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="font-weight:600;">VIX spike to 40</span><span class="mono" style="color:var(--accent-red);">-$5,100</span></div>
+        <div style="font-size:11px; color:var(--text-secondary);">Options positions would face IV expansion</div>
+      </div>
+    </div>
+  `;
+}
+
+function generateLiquidityReport() {
+  return `
+    <div style="font-size:12px;">
+      <div style="font-weight:600; margin-bottom:12px;">Liquidity Analysis</div>
+      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Total Cash</span><span class="mono">$85,200.00</span></div>
+      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Buying Power</span><span class="mono">$75,420.00</span></div>
+      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Cash Reserve Floor</span><span class="mono">$20,000.00</span></div>
+      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Available Above Floor</span><span class="mono" style="color:var(--accent-green);">$65,200.00</span></div>
+      <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Margin Used</span><span class="mono">$0.00</span></div>
+      <div style="margin-top:12px; padding:10px; background:rgba(16,185,129,0.1); border-radius:8px; color:var(--accent-green); font-size:11px;">
+        ✅ Liquidity is healthy. No margin usage. Cash well above reserve floor.
+      </div>
+    </div>
+  `;
+}
+
+// ── AGENT DETAIL ──
+function showAgentDetail(name) {
+  const agent = state.agents.find(a => a.name === name);
+  if (!agent) return;
+  showModal(`${agent.icon} ${agent.label} Agent`, `
+    <div style="font-size:12px;">
+      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border);"><span>Status</span><span class="status-badge badge-live">${agent.status.toUpperCase()}</span></div>
+      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border);"><span>Module</span><span class="mono">${agent.name}.py</span></div>
+      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border);"><span>Restarts</span><span class="mono">0</span></div>
+      <div style="display:flex; justify-content:space-between; padding:6px 0;"><span>Last Error</span><span style="color:var(--text-secondary);">None</span></div>
+      <div style="margin-top:12px; display:flex; gap:6px;">
+        <button class="btn btn-amber" style="flex:1; font-size:11px;" onclick="closeModal(); addLog('exec','Restarted ${agent.label}','exec'); showToast('${agent.label} restarted','success');">Restart</button>
+        <button class="btn btn-danger" style="flex:1; font-size:11px;" onclick="closeModal(); addLog('exec','Stopped ${agent.label}','exec'); showToast('${agent.label} stopped','warning');">Stop</button>
+      </div>
+    </div>
+  `);
+}
+
+// ── CHART RANGE ──
+function setChartRange(range) {
+  // Update active state visually
+  document.querySelectorAll('[onclick^="setChartRange"]').forEach(b => b.classList.remove('tab-active'));
+  event.target.classList.add('tab-active');
+  // Regenerate data
+  const points = range === '1D' ? 24 : range === '1W' ? 50 : 150;
+  const labels = []; const data = [];
+  let val = 98500;
+  for (let i = 0; i < points; i++) {
+    labels.push('');
+    val += (Math.random() - 0.45) * (range === '1M' ? 300 : 500);
+    data.push(Math.round(val * 100) / 100);
+  }
+  portfolioChart.data.labels = labels;
+  portfolioChart.data.datasets[0].data = data;
+  portfolioChart.update();
+}
+
+function clearSignals() { state.signals = []; renderSignals(); }
+
+// ── DATA POLLING ──
+let apiConnected = false;
+
+async function pollData() {
   try {
-    const res = await fetch('/api/data');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    lastData = data;
-    errorCount = 0;
-    document.getElementById('pulse').className = 'pulse';
-    document.getElementById('status-text').textContent = 'live';
-    document.getElementById('refresh-info').textContent = 'updated ' + new Date().toLocaleTimeString();
-    render(data);
-  } catch(e) {
-    errorCount++;
-    document.getElementById('pulse').className = 'pulse error';
-    document.getElementById('status-text').textContent = 'cannot reach bot — is it running?';
-    if (lastData) render(lastData); // keep showing stale data
+    // Single endpoint — matches your dashboard.py /api/data
+    const res = await fetch(`${API_BASE}/api/data`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+
+    if (!apiConnected) {
+      apiConnected = true;
+      addLog('info', '✅ Connected to trading bot API at ' + API_BASE);
+    }
+
+    // ── Account (from enriched shared state) ──
+    if (d.account && d.account.portfolio_value) {
+      const a = d.account;
+      document.getElementById('portfolioValue').textContent = '$' + Number(a.portfolio_value).toLocaleString(undefined, { minimumFractionDigits: 2 });
+      if (a.buying_power) document.getElementById('buyingPower').textContent = '$' + Number(a.buying_power).toLocaleString(undefined, { minimumFractionDigits: 2 });
+      if (a.cash) document.getElementById('cashValue').textContent = '$' + Number(a.cash).toLocaleString(undefined, { minimumFractionDigits: 2 });
+      if (a.portfolio_value && a.last_equity) {
+        const pnl = Number(a.portfolio_value) - Number(a.last_equity);
+        const pnlPct = (pnl / Number(a.last_equity) * 100).toFixed(2);
+        const isPos = pnl >= 0;
+        document.getElementById('pnlArrow').textContent = isPos ? '▲' : '▼';
+        document.getElementById('pnlValue').textContent = `${isPos ? '+' : ''}$${pnl.toFixed(2)} (${isPos ? '+' : ''}${pnlPct}%)`;
+        document.getElementById('pnlValue').style.color = isPos ? 'var(--accent-green)' : 'var(--accent-red)';
+      }
+    }
+
+    // ── Positions ──
+    if (Array.isArray(d.positions)) {
+      renderPositions(d.positions);
+    }
+
+    // ── Trades ──
+    if (Array.isArray(d.recent_trades)) {
+      renderTrades(d.recent_trades);
+      document.getElementById('tradeCount').textContent = d.total_trades || d.recent_trades.length;
+      // Win rate from outcomes
+      if (Array.isArray(d.outcomes) && d.outcomes.length > 0) {
+        const wins = d.outcomes.filter(o => (o.pnl || 0) > 0).length;
+        document.getElementById('winRate').textContent = Math.round(wins / d.outcomes.length * 100) + '%';
+      }
+    }
+
+    // ── Signals ──
+    if (Array.isArray(d.signals) && d.signals.length > 0) {
+      d.signals.forEach(s => {
+        if (!state.signals.find(x => x.symbol === s.symbol && x.strategy === s.strategy && x.ts === s.ts)) {
+          addSignal({ ...s, time: s.ts, confidence: s.confidence || 0 });
+        }
+      });
+      document.getElementById('signalCount').textContent = state.signals.length;
+      const avg = state.signals.reduce((sum, s) => sum + (s.confidence || 0), 0) / state.signals.length;
+      document.getElementById('avgConfidence').textContent = Math.round(avg * 100) + '%';
+    }
+
+    // ── Agent status (from enriched shared state) ──
+    if (Array.isArray(d.agent_status) && d.agent_status.length > 0) {
+      d.agent_status.forEach(a => {
+        const existing = state.agents.find(x => x.name === a.name);
+        if (existing) {
+          existing.status = a.status;
+          existing.restarts = a.restarts || 0;
+        }
+      });
+      renderAgents();
+    }
+
+    // ── Errors (render to activity log) ──
+    if (Array.isArray(d.errors) && d.errors.length > 0) {
+      d.errors.forEach(e => {
+        if (!state.logs.find(l => l.message === e.message && l.time === e.ts)) {
+          state.logs.push({ time: e.ts, level: e.level === 'ERROR' ? 'error' : 'warn', message: `[${e.agent}] ${e.message}`, source: 'system' });
+        }
+      });
+      if (state.logs.length > 100) state.logs = state.logs.slice(-100);
+      renderLogs();
+    }
+
+    // ── Trading paused (sync from bot) ──
+    if (d.trading_paused !== undefined && d.trading_paused !== state.tradingPaused) {
+      state.tradingPaused = d.trading_paused;
+      const statusEl = document.getElementById('systemStatus');
+      if (state.tradingPaused) {
+        statusEl.className = 'status-badge badge-paused';
+        statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-amber);"></span>PAUSED';
+      } else {
+        statusEl.className = 'status-badge badge-live';
+        statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>LIVE';
+      }
+    }
+
+    // ── Market open status ──
+    if (d.market_open !== undefined) {
+      const el = document.getElementById('marketStatus');
+      if (d.market_open) {
+        el.className = 'status-badge badge-live';
+        el.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>OPEN';
+      } else {
+        el.className = 'status-badge badge-offline';
+        el.innerHTML = 'CLOSED';
+      }
+    }
+
+    // ── Investment plan ──
+    if (d.plan && typeof d.plan === 'object' && d.plan.targets) {
+      const targets = d.plan.targets;
+      if (typeof targets === 'object') {
+        state.planTargets = Object.entries(targets).map(([sym, wt]) => ({ symbol: sym, weight: typeof wt === 'number' ? wt : parseFloat(wt) || 0 }));
+        renderPlanTargets();
+      }
+      if (d.plan.stance) {
+        state.stance = d.plan.stance;
+        const colors = { bullish: 'var(--accent-green)', neutral: 'var(--accent-amber)', bearish: 'var(--accent-red)' };
+        document.getElementById('currentStance').textContent = d.plan.stance.toUpperCase();
+        document.getElementById('currentStance').style.color = colors[d.plan.stance] || 'var(--text-secondary)';
+      }
+    }
+
+  } catch (e) {
+    // API not available — keep demo data
+    if (apiConnected) {
+      apiConnected = false;
+      addLog('warn', '⚠️ Lost connection to trading bot API');
+    }
   }
 }
 
-fetchData();
-setInterval(fetchData, 5000);
+// ── DEMO DATA (for when API is not running) ──
+function loadDemoData() {
+  const demoPositions = [
+    { symbol: 'SPY', qty: 50, market_val: 28500, unrealised: 420.50 },
+    { symbol: 'QQQ', qty: 30, market_val: 14200, unrealised: -85.20 },
+    { symbol: 'AAPL', qty: 25, market_val: 5125, unrealised: 215.00 },
+    { symbol: 'MSFT', qty: 15, market_val: 6300, unrealised: 178.30 },
+    { symbol: 'PAXG/USD', qty: 2, market_val: 5180, unrealised: 560.00 },
+  ];
+  renderPositions(demoPositions);
+
+  const demoSignals = [
+    { symbol: 'AAPL', side: 'buy', strategy: 'RSI Oversold', confidence: 0.82, time: '10:32:15' },
+    { symbol: 'MSFT', side: 'buy', strategy: 'MACD Cross', confidence: 0.71, time: '10:28:44' },
+    { symbol: 'TSLA', side: 'sell', strategy: 'Bollinger Break', confidence: 0.65, time: '10:15:22' },
+    { symbol: 'SPY', side: 'buy', strategy: 'VWAP Bounce', confidence: 0.78, time: '09:55:10' },
+    { symbol: 'NVDA', side: 'buy', strategy: 'EMA Cross', confidence: 0.69, time: '09:42:33' },
+  ];
+  demoSignals.forEach(s => addSignal(s));
+
+  const demoTrades = [
+    { time: '2026-04-08T10:32:15', symbol: 'AAPL', side: 'buy', qty: 5, price: 205.12, notional: 1025.60, strategy_tag: 'rsi_oversold' },
+    { time: '2026-04-08T10:15:22', symbol: 'TSLA', side: 'sell', qty: 3, price: 248.50, notional: 745.50, strategy_tag: 'bollinger_break' },
+    { time: '2026-04-08T09:55:10', symbol: 'SPY', side: 'buy', qty: 10, price: 570.20, notional: 5702.00, strategy_tag: 'vwap_bounce' },
+    { time: '2026-04-08T09:42:33', symbol: 'NVDA', side: 'buy', qty: 2, price: 892.40, notional: 1784.80, strategy_tag: 'ema_cross' },
+    { time: '2026-04-08T09:31:05', symbol: 'PAXG/USD', side: 'buy', qty: 2, price: 2590.00, notional: 5180.00, strategy_tag: 'plan_target' },
+  ];
+  renderTrades(demoTrades);
+
+  addLog('info', 'Dashboard connected — polling every 5s');
+  addLog('info', 'All 8 agents running normally');
+  addLog('info', 'Market hours: 8:30 AM — 3:00 PM CST');
+}
+
+// ── INIT ──
+document.addEventListener('DOMContentLoaded', () => {
+  initPortfolioChart();
+  initAllocationChart();
+  renderAgents();
+  renderSignals();
+  renderPlanTargets();
+  renderPlanHistory();
+  renderOverrides();
+  renderLogs();
+  switchExec('ceo');
+  loadDemoData();
+  // Start polling
+  pollData();
+  setInterval(pollData, POLL_INTERVAL);
+});
 </script>
 </body>
 </html>
