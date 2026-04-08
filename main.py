@@ -111,6 +111,12 @@ def main():
         logger.error(f"step 3: cannot connect to Alpaca API: {e}")
         sys.exit(1)
 
+    # -- step 3b: resolve initial watchlist from settings --------
+    initial_wl = list(settings.WATCHLIST) + list(settings.CRYPTO_WATCHLIST)
+    with shared.cache_lock:
+        shared.watchlist = initial_wl
+    logger.info(f"step 3b: initial watchlist -> {len(initial_wl)} symbols")
+
     # ?? step 4: ref library ? wait for ref_ready_event ????????
     t_ref = _start_thread(ref_library.run, "ref_library")
     _all_threads.append(t_ref)

@@ -103,10 +103,10 @@ def _fetch_crypto_bars(symbols: list, limit=30):
     if not symbols:
         return
     try:
-        from alpaca.data.historical import CryptoHistoricalBarClient
+        from alpaca.data.historical import CryptoHistoricalDataClient
         from alpaca.data.requests import CryptoBarsRequest
         from alpaca.data.timeframe import TimeFrame
-        client = CryptoHistoricalBarClient(settings.APCA_KEY, settings.APCA_SECRET)
+        client = CryptoHistoricalDataClient()
         end   = datetime.datetime.now(datetime.timezone.utc)
         start = end - datetime.timedelta(days=limit)
         req = CryptoBarsRequest(
@@ -131,7 +131,8 @@ def _fetch_news(symbols: list = None, limit: int = 50):
         from alpaca.data.historical import NewsClient
         from alpaca.data.requests import NewsRequest
         client = NewsClient(settings.APCA_KEY, settings.APCA_SECRET)
-        req    = NewsRequest(symbols=symbols, limit=limit)
+        # Fetch news without symbol filter (API may not support list or string)
+        req    = NewsRequest(limit=limit)
         news   = list(client.get_news(req))
         with shared.cache_lock:
             shared.historical_news = {"articles": news}

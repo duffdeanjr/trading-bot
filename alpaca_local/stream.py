@@ -82,9 +82,14 @@ def _build_news_stream():
     return s
 
 def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
-    symbols_equity  = symbols_equity  or ["*"]
-    symbols_crypto  = symbols_crypto  or ["*"]
-    symbols_option  = symbols_option  or ["*"]
+    # Default to watchlist symbols instead of wildcard to avoid IEX 405 errors
+    if symbols_equity is None:
+        wl = [s for s in (shared.watchlist or []) if "/" not in s]
+        symbols_equity = wl if wl else ["*"]
+    if symbols_crypto is None:
+        cl = [s for s in (shared.watchlist or []) if "/" in s]
+        symbols_crypto = cl if cl else ["BTC/USD", "ETH/USD"]
+    symbols_option = symbols_option or ["*"]
 
     _streams["trade"]  = _build_trading_stream()
     _streams["stock"]  = _build_stock_stream()
