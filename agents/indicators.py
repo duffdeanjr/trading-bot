@@ -4,7 +4,7 @@ All functions accept a list of floats (closes, highs, lows, volumes) and
 return a single float or dict. Stateless, pure functions -- no I/O.
 """
 
-def _ema(values: list, period: int) -> list:
+def ema(values: list, period: int) -> list:
     if len(values) < period:
         return []
     k = 2.0 / (period + 1)
@@ -34,13 +34,13 @@ def macd(closes: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
     """MACD line, signal line, histogram. Returns dict or None."""
     if len(closes) < slow + signal:
         return None
-    ema_fast = _ema(closes, fast)
-    ema_slow = _ema(closes, slow)
+    ema_fast = ema(closes, fast)
+    ema_slow = ema(closes, slow)
     min_len = min(len(ema_fast), len(ema_slow))
     macd_line = [ema_fast[-(min_len-i)] - ema_slow[-(min_len-i)] for i in range(min_len)]
     if len(macd_line) < signal:
         return None
-    sig_line = _ema(macd_line, signal)
+    sig_line = ema(macd_line, signal)
     if not sig_line:
         return None
     hist = macd_line[-1] - sig_line[-1]

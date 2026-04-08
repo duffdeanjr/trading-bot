@@ -6,7 +6,7 @@ import threading
 
 import shared
 from config import settings
-from storage.database import write_investment_plan, read_latest_plan
+from storage.database import write_investment_plan, read_latest_plan, get_strategy_score
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def load_plan() -> dict:
 
 def save_plan(plan: dict, trigger: str, summary: str):
     ts = time.time()
-    plan["updated_at"] = datetime.datetime.utcnow().isoformat()
+    plan["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     plan["trigger"] = trigger
     plan_json = json.dumps(plan, default=str)
     version = write_investment_plan(ts, plan_json, trigger=trigger, summary=summary)
@@ -91,10 +91,15 @@ def _infer_sector(symbol: str) -> str:
     return "other"
 
 
-def _check_corp_action_exclusions(plan: dict) -> list:
-    exclusions = []
+def _get_dirty_symbols() -> set:
+    """Read dirty_symbols snapshot under cache_lock (for use outside _lock)."""
     with shared.cache_lock:
-        dirty = set(shared.dirty_symbols)
+        return set(shared.dirty_symbols)
+
+def _check_corp_action_exclusions(plan: dict, dirty: set = None) -> list:
+    if dirty is None:
+        dirty = _get_dirty_symbols()
+    exclusions = []
     for sym in dirty:
         if sym not in plan["exclusions"]:
             exclusions.append(sym)
@@ -134,101 +139,117 @@ def _apply_risk_constraints(plan: dict) -> dict:
 
 def update_plan(signals: list, trigger: str = "signal_batch") -> dict:
     global _last_update
+
+    # Gather shared state OUTSIDE the lock to avoid nested lock acquisitions
+    now = time.time()
     with _lock:
-        now = time.time()
         if now - _last_update < PLAN_COOLDOWN and trigger == "signal_batch":
             logger.debug("plan_manager: skipping update (cooldown)")
             return _get_current_plan()
+        _last_update = now
 
-        plan = load_plan()
-        positions = _get_current_positions()
-        notes = []
+    plan = load_plan()
+    positions = _get_current_positions()
+    dirty_snapshot = _get_dirty_symbols()
+    notes = []
 
-        old_stance = plan["stance"]
-        plan["stance"] = _compute_stance(signals)
-        if plan["stance"] != old_stance:
-            notes.append(f"stance: {old_stance} -> {plan['stance']}")
+    old_stance = plan["stance"]
+    plan["stance"] = _compute_stance(signals)
+    if plan["stance"] != old_stance:
+        notes.append(f"stance: {old_stance} -> {plan['stance']}")
 
-        if plan["stance"] == "risk-off":
-            plan["cash_target_pct"] = 0.20
-        elif plan["stance"] == "risk-on":
-            plan["cash_target_pct"] = 0.05
-        else:
-            plan["cash_target_pct"] = 0.10
+    if plan["stance"] == "risk-off":
+        plan["cash_target_pct"] = 0.20
+    elif plan["stance"] == "risk-on":
+        plan["cash_target_pct"] = 0.05
+    else:
+        plan["cash_target_pct"] = 0.10
 
-        new_exclusions = _check_corp_action_exclusions(plan)
-        for sym in new_exclusions:
-            plan["exclusions"].append(sym)
-            if sym in plan["symbols"]:
-                del plan["symbols"][sym]
-                notes.append(f"removed {sym}: corp action")
-
-        for sig in signals:
-            sym  = sig.get("symbol")
-            side = sig.get("side")
-            conf = float(sig.get("confidence", 0.5))
-            sentiment = float(sig.get("sentiment", 0.0))
-            strategy  = sig.get("strategy", "unknown")
-            if not sym or sym in plan["exclusions"]:
-                continue
-            sector = _infer_sector(sym)
-            if side == "buy":
-                if sym not in plan["symbols"]:
-                    plan["symbols"][sym] = {
-                        "conviction":  conf,
-                        "target_pct":  min(conf * 0.05, settings.MAX_PORTFOLIO_PCT),
-                        "sector":      sector,
-                        "strategy":    strategy,
-                        "reason":      f"{strategy} conf={conf:.2f} sent={sentiment:.2f}",
-                        "added_at":    datetime.datetime.utcnow().isoformat(),
-                    }
-                    notes.append(f"added {sym} target={plan['symbols'][sym]['target_pct']:.1%}")
-                else:
-                    entry = plan["symbols"][sym]
-                    entry["conviction"] = entry["conviction"] * 0.7 + conf * 0.3
-                    entry["target_pct"] = min(entry["target_pct"] * 1.1, settings.MAX_PORTFOLIO_PCT)
-                    entry["reason"] = f"updated: {strategy} conf={conf:.2f}"
-            elif side == "sell":
-                if sym in plan["symbols"]:
-                    entry = plan["symbols"][sym]
-                    entry["conviction"] *= 0.5
-                    entry["target_pct"] *= 0.5
-                    entry["reason"] = f"sell signal: {strategy}"
-                    if entry["target_pct"] < 0.005:
-                        del plan["symbols"][sym]
-                        notes.append(f"removed {sym}: low conviction")
-
-        now_dt = datetime.datetime.utcnow()
-        stale = []
-        for sym, entry in plan["symbols"].items():
-            added = entry.get("added_at")
-            if added:
-                try:
-                    age_days = (now_dt - datetime.datetime.fromisoformat(added)).days
-                    if age_days > 7 and sym not in positions:
-                        stale.append(sym)
-                except Exception:
-                    pass
-        for sym in stale:
+    new_exclusions = _check_corp_action_exclusions(plan, dirty_snapshot)
+    for sym in new_exclusions:
+        plan["exclusions"].append(sym)
+        if sym in plan["symbols"]:
             del plan["symbols"][sym]
-            notes.append(f"pruned stale: {sym}")
+            notes.append(f"removed {sym}: corp action")
 
-        sector_weights = {}
-        for entry in plan["symbols"].values():
-            sec = entry.get("sector", "other")
-            sector_weights[sec] = sector_weights.get(sec, 0) + entry["target_pct"]
-        plan["sector_targets"] = sector_weights
+    for sig in signals:
+        sym  = sig.get("symbol")
+        side = sig.get("side")
+        conf = float(sig.get("confidence", 0.5))
+        sentiment_val = float(sig.get("sentiment", 0.0))
+        strategy  = sig.get("strategy", "unknown")
+        if not sym or sym in plan["exclusions"]:
+            continue
 
-        plan = _apply_risk_constraints(plan)
+        # Adjust conviction by strategy score (feedback loop)
+        score_row = get_strategy_score(strategy)
+        if score_row and (score_row.get("trade_count") or 0) >= 10:
+            s = score_row.get("score", 0.5)
+            if s < 0.3:
+                conf *= 0.5
+            elif s > 0.7:
+                conf *= 1.2
+            conf = min(conf, 1.0)
 
-        if notes:
-            plan["notes"] = (plan.get("notes", []) + notes)[-50:]
+        sector = _infer_sector(sym)
+        if side == "buy":
+            if sym not in plan["symbols"]:
+                plan["symbols"][sym] = {
+                    "conviction":  conf,
+                    "target_pct":  min(conf * 0.05, settings.MAX_PORTFOLIO_PCT),
+                    "sector":      sector,
+                    "strategy":    strategy,
+                    "reason":      f"{strategy} conf={conf:.2f} sent={sentiment_val:.2f}",
+                    "added_at":    datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                }
+                notes.append(f"added {sym} target={plan['symbols'][sym]['target_pct']:.1%}")
+            else:
+                entry = plan["symbols"][sym]
+                entry["conviction"] = entry["conviction"] * 0.7 + conf * 0.3
+                entry["target_pct"] = min(entry["target_pct"] * 1.1, settings.MAX_PORTFOLIO_PCT)
+                entry["reason"] = f"updated: {strategy} conf={conf:.2f}"
+        elif side == "sell":
+            if sym in plan["symbols"]:
+                entry = plan["symbols"][sym]
+                entry["conviction"] *= 0.5
+                entry["target_pct"] *= 0.5
+                entry["reason"] = f"sell signal: {strategy}"
+                if entry["target_pct"] < 0.005:
+                    del plan["symbols"][sym]
+                    notes.append(f"removed {sym}: low conviction")
 
-        n = len(plan["symbols"])
-        summary = f"{n} symbols | stance={plan['stance']} | cash={plan['cash_target_pct']:.0%}"
-        save_plan(plan, trigger=trigger, summary=summary)
-        _last_update = time.time()
-        return plan
+    now_dt = datetime.datetime.now(datetime.timezone.utc)
+    stale = []
+    for sym, entry in plan["symbols"].items():
+        added = entry.get("added_at")
+        if added:
+            try:
+                age_days = (now_dt - datetime.datetime.fromisoformat(added)).days
+                if age_days > 7 and sym not in positions:
+                    stale.append(sym)
+            except Exception:
+                pass
+    for sym in stale:
+        del plan["symbols"][sym]
+        notes.append(f"pruned stale: {sym}")
+
+    sector_weights = {}
+    for entry in plan["symbols"].values():
+        sec = entry.get("sector", "other")
+        sector_weights[sec] = sector_weights.get(sec, 0) + entry["target_pct"]
+    plan["sector_targets"] = sector_weights
+
+    plan = _apply_risk_constraints(plan)
+
+    if notes:
+        plan["notes"] = (plan.get("notes", []) + notes)[-50:]
+
+    n = len(plan["symbols"])
+    summary = f"{n} symbols | stance={plan['stance']} | cash={plan['cash_target_pct']:.0%}"
+
+    # Save OUTSIDE the lock
+    save_plan(plan, trigger=trigger, summary=summary)
+    return plan
 
 
 def _get_current_plan() -> dict:
@@ -260,7 +281,7 @@ def _scheduled_refresh():
 
     with shared.cache_lock:
         calendar = list(shared.calendar)
-    now_str = datetime.datetime.utcnow().date().isoformat()
+    now_str = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     upcoming = [str(c) for c in calendar[:5]]
     if calendar and now_str not in " ".join(upcoming):
         notes.append("market holiday approaching — raising cash target")

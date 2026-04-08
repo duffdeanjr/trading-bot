@@ -10,6 +10,7 @@ IVR < 30 = buy premium (calendar spreads, debit spreads)
 import math
 import logging
 import shared
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +18,14 @@ _iv_history: dict = {}  # symbol -> list of historical IV snapshots
 
 
 def _black_scholes_iv(option_price: float, S: float, K: float,
-                      T: float, r: float = 0.05, is_call: bool = True) -> float:
+                      T: float, r: float = None, is_call: bool = True) -> float:
     """
     Newton-Raphson IV solver. Returns IV as decimal (0.25 = 25%).
     S=underlying, K=strike, T=time to expiry in years, r=risk-free rate.
     Returns None if no solution found.
     """
+    if r is None:
+        r = settings.RISK_FREE_RATE
     if T <= 0 or S <= 0 or K <= 0 or option_price <= 0:
         return None
 
@@ -145,7 +148,7 @@ def select_strategy(ivr_data: dict) -> str:
 
     if regime == "high" or (ivr and ivr >= 60):
         return "iron_condor"
-    elif regime == "high" or (ivr and ivr >= 40):
+    elif ivr and ivr >= 40:
         return "covered_call"
     elif regime == "normal":
         return "cash_secured_put"

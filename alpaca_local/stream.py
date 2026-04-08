@@ -130,9 +130,23 @@ def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
         except Exception as e:
             logger.warning(f"stream: news subscribe failed: {e}")
 
+    import random
+
+    def _run_with_reconnect(sname, sobj):
+        while not shared.SHUTTING_DOWN:
+            try:
+                sobj.run()
+            except Exception as e:
+                logger.error(f"stream '{sname}' disconnected: {e}")
+                reconnect_count[sname] = reconnect_count.get(sname, 0) + 1
+                backoff = min(2 ** reconnect_count[sname], 60) + random.uniform(0, 2)
+                time.sleep(backoff)
+        logger.info(f"stream '{sname}' exiting (SHUTTING_DOWN)")
+
     for name, stream in _streams.items():
         try:
-            t = threading.Thread(target=stream.run, name=f"stream-{name}", daemon=True)
+            t = threading.Thread(target=_run_with_reconnect, args=(name, stream),
+                                 name=f"stream-{name}", daemon=True)
             t.start()
             logger.info(f"alpaca_local.stream: stream started: {name}")
         except Exception as e:

@@ -1,13 +1,17 @@
-import json, sqlite3, time, traceback
+import os
+import json
+import sqlite3
+import time
+import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
+from config import settings
 
-DB_PATH   = r"C:\Users\duffd\OneDrive\Desktop\Claude IO\trading-bot\trading.db"
-HTML_PATH = r"C:\Users\duffd\OneDrive\Desktop\Claude IO\trading-bot\dashboard.html"
-PORT = 5050
+_BASE = os.path.dirname(os.path.abspath(__file__))
+HTML_PATH = os.path.join(_BASE, "dashboard.html")
 
 def query(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(settings.DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(sql, params).fetchall()
@@ -16,7 +20,7 @@ def query(sql, params=()):
         conn.close()
 
 def query_one(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(settings.DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         r = conn.execute(sql, params).fetchone()
@@ -34,6 +38,8 @@ def api_data():
     plan_row = query_one("SELECT plan_json, summary, trigger, ts FROM investment_plans ORDER BY version DESC LIMIT 1")
     errors = query("SELECT agent,level,message,ts FROM agent_logs WHERE level IN ('ERROR','WARNING') ORDER BY ts DESC LIMIT 20")
     signals = query("SELECT ts,symbol,strategy,side,confidence,sentiment FROM signals ORDER BY ts DESC LIMIT 20")
+    outcomes = query("SELECT symbol,strategy,side,pnl,pnl_pct,status FROM outcomes ORDER BY COALESCE(exit_ts, entry_ts) DESC LIMIT 20")
+    scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
 
     plan_data = {}
     if plan_row and plan_row.get("plan_json"):
@@ -51,6 +57,8 @@ def api_data():
         "plan_summary":  plan_row.get("summary", ""),
         "errors":        errors,
         "signals":       signals,
+        "outcomes":      outcomes,
+        "strategy_scores": scores,
         "server_ts":     time.time(),
     }
 
@@ -91,8 +99,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
 if __name__ == "__main__":
-    server = HTTPServer(("localhost", PORT), Handler)
-    print(f"Dashboard running at http://localhost:{PORT}")
+    server = HTTPServer(("localhost", settings.DASHBOARD_PORT), Handler)
+    print(f"Dashboard running at http://localhost:{settings.DASHBOARD_PORT}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()

@@ -1,5 +1,6 @@
 import time
 import logging
+import datetime
 import shared
 from config import settings
 from alpaca_local import client as alpaca, stream as alpaca_stream
@@ -7,10 +8,17 @@ from storage import database
 
 logger = logging.getLogger(__name__)
 
+def _extract_strategy_tag(client_order_id):
+    """Extract strategy tag from client_order_id format 'strategy_tag::timestamp'."""
+    if client_order_id and "::" in str(client_order_id):
+        return str(client_order_id).split("::")[0]
+    return "unknown"
+
 def _on_fill(event):
     """
     Fill callback from TradingStream.
-    Writes to DB immediately (diagnostic fix) then updates shared positions.
+    Writes to DB immediately, tracks outcomes for feedback loop,
+    then updates shared positions.
     """
     try:
         order = event.order
@@ -18,23 +26,47 @@ def _on_fill(event):
         side   = str(order.side)
         qty    = float(order.filled_qty or 0)
         price  = float(order.filled_avg_price or 0)
+        strategy = _extract_strategy_tag(order.client_order_id)
+        now_iso  = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-        # Immediate DB write (before shared.py update)
+        # Immediate DB write
         database.write_trade(
             ts=time.time(), symbol=symbol, side=side,
             qty=qty, price=price, notional=qty * price,
             order_type=str(order.order_type),
             client_order_id=order.client_order_id,
+            strategy_tag=strategy,
         )
+
+        # Outcome tracking: determine if this is an entry or exit
+        with shared.positions_lock:
+            existing_qty = 0
+            pos = shared.positions.get(symbol)
+            if pos is not None:
+                existing_qty = float(getattr(pos, "qty", 0) or
+                                     (pos.get("qty", 0) if isinstance(pos, dict) else 0))
+
+        if side == "buy" and existing_qty <= 0:
+            # New long entry
+            database.open_outcome(symbol, strategy, "buy", price, now_iso, qty)
+        elif side == "sell" and existing_qty <= qty:
+            # Closing a long position (full or partial exit)
+            database.close_outcome(symbol, strategy, price, now_iso)
+        elif side == "sell" and existing_qty <= 0:
+            # New short entry
+            database.open_outcome(symbol, strategy, "sell", price, now_iso, qty)
+        elif side == "buy" and existing_qty < 0:
+            # Closing a short position
+            database.close_outcome(symbol, strategy, price, now_iso)
 
         # Optimistic position update
         with shared.positions_lock:
             pos = shared.positions.get(symbol, {})
-            existing_qty = float(pos.get("qty", 0)) if isinstance(pos, dict) else 0
+            eq = float(pos.get("qty", 0)) if isinstance(pos, dict) else float(getattr(pos, "qty", 0) or 0)
             if side == "buy":
-                shared.positions[symbol] = {"qty": existing_qty + qty, "avg_price": price}
+                shared.positions[symbol] = {"qty": eq + qty, "avg_price": price}
             else:
-                shared.positions[symbol] = {"qty": max(0, existing_qty - qty), "avg_price": price}
+                shared.positions[symbol] = {"qty": max(0, eq - qty), "avg_price": price}
 
     except Exception as e:
         logger.error(f"account_agent fill callback error: {e}")

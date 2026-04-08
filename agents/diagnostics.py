@@ -56,24 +56,19 @@ def _check_alpaca_status():
     except Exception as e:
         logger.debug(f"diagnostics: status check failed: {e}")
 
+_rate_limit_flagged_at = 0.0
+
 def _check_rate_limit():
-    """
-    Detect and set/clear RATE_LIMITED flag.
-    429s are detected here and written to shared.py.
-    All other agents read this flag before making API calls.
-    Resets after BACKOFF_BASE^MAX_RETRIES seconds.
-    """
-    pass  # actual 429 detection happens in client/stream error handlers
-          # this loop just manages the reset timer
+    """Manage the RATE_LIMITED reset timer (429 detection is in client/stream)."""
+    global _rate_limit_flagged_at
     if shared.RATE_LIMITED:
-        # Check if backoff window has passed ? reset flag
         reset_after = settings.BACKOFF_BASE ** settings.MAX_RETRIES
-        if not hasattr(_check_rate_limit, "_flagged_at"):
-            _check_rate_limit._flagged_at = time.time()
-        if time.time() - _check_rate_limit._flagged_at > reset_after:
+        if _rate_limit_flagged_at == 0.0:
+            _rate_limit_flagged_at = time.time()
+        if time.time() - _rate_limit_flagged_at > reset_after:
             shared.RATE_LIMITED = False
+            _rate_limit_flagged_at = 0.0
             logger.info("diagnostics: RATE_LIMITED cleared after backoff window")
-            del _check_rate_limit._flagged_at
 
 def _check_agent_health():
     """Alert on any agent crash recorded in AGENT_ERRORS."""

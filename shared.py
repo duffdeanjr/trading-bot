@@ -40,9 +40,13 @@ corp_actions     = []   # OWNER: ref_library (GET /corporate_actions)
 historical_ohlcv = {}   # OWNER: ref_library (_fetch_historical)
 historical_news  = {}   # OWNER: ref_library (_fetch_news)
 
-# ── ticker list — guarded by cache_lock ───────────────────────
-ticker_list  = []       # OWNER: signal_generator (screener output)
+# ── watchlist — guarded by cache_lock ─────────────────────────
+watchlist    = []       # OWNER: boss (resolved from settings or Alpaca API)
+ticker_list  = []       # OWNER: signal_generator (= watchlist, kept for compat)
 ticker_ts    = 0.0      # OWNER: signal_generator (time.time() of last screener run)
+
+# ── investment plan — guarded by cache_lock ───────────────────
+investment_plan = None  # OWNER: plan_manager (cached plan dict)
 
 # ── dirty symbols — guarded by cache_lock (NEW) ───────────────
 # account_agent writes symbol here when a corp action NTA event is detected.

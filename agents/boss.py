@@ -1,6 +1,5 @@
 import time
 import logging
-import threading
 import shared
 from config import settings
 from alpaca_local import client as alpaca
@@ -20,38 +19,64 @@ def _check_clock():
         clock = alpaca.get_clock()
         shared.MARKET_OPEN = clock.is_open
 
-        # Derive extended hours from timestamp (pre-market and after-hours)
         now_et = clock.timestamp
-        mins = now_et.hour * 60 + now_et.minute
-        shared.EXTENDED_HOURS = (
-            not clock.is_open and
-            (_EXTENDED_START_OPEN <= mins < _REGULAR_OPEN or
-             _EXTENDED_START_CLOSE <= mins < _EXTENDED_END_CLOSE)
-        )
+        if now_et is not None:
+            mins = now_et.hour * 60 + now_et.minute
+            shared.EXTENDED_HOURS = (
+                not clock.is_open and
+                (_EXTENDED_START_OPEN <= mins < _REGULAR_OPEN or
+                 _EXTENDED_START_CLOSE <= mins < _EXTENDED_END_CLOSE)
+            )
+        else:
+            shared.EXTENDED_HOURS = False
     except Exception as e:
         logger.error(f"boss: GET /clock failed: {e}")
 
-def _fetch_watchlists():
-    if shared.RATE_LIMITED:
-        return []
-    try:
-        return alpaca.get_watchlists()
-    except Exception as e:
-        logger.error(f"boss: GET /watchlists failed: {e}")
-        return []
+def _resolve_watchlist():
+    """Resolve watchlist from settings or Alpaca API."""
+    symbols = []
+
+    # Try Alpaca watchlist first
+    if settings.WATCHLIST_ALPACA and not shared.RATE_LIMITED:
+        try:
+            wlists = alpaca.get_watchlists()
+            for wl in wlists:
+                name = getattr(wl, 'name', '')
+                if name == settings.WATCHLIST_ALPACA:
+                    assets = getattr(wl, 'assets', [])
+                    symbols = [getattr(a, 'symbol', '') for a in assets if getattr(a, 'symbol', '')]
+                    logger.info(f"boss: resolved {len(symbols)} symbols from Alpaca watchlist '{name}'")
+                    break
+        except Exception as e:
+            logger.warning(f"boss: Alpaca watchlist fetch failed: {e}")
+
+    # Fall back to env-configured watchlist
+    if not symbols:
+        symbols = list(settings.WATCHLIST)
+
+    # Add crypto watchlist
+    symbols.extend(settings.CRYPTO_WATCHLIST)
+
+    with shared.cache_lock:
+        shared.watchlist = symbols
+        shared.ticker_list = symbols
+
+    logger.info(f"boss: watchlist resolved -> {len(symbols)} symbols")
 
 def run():
     logger.info("boss: starting")
-    watchlists = []
     last_open_state = None
+
+    # Resolve watchlist at startup
+    _resolve_watchlist()
 
     while not shared.SHUTTING_DOWN:
         _check_clock()
 
-        # Fetch watchlists once per session open (on transition to open)
+        # Re-resolve watchlist on market open transition
         if shared.MARKET_OPEN and not last_open_state:
-            watchlists = _fetch_watchlists()
-            logger.info(f"boss: market opened ? fetched {len(watchlists)} watchlists")
+            _resolve_watchlist()
+            logger.info("boss: market opened")
 
         last_open_state = shared.MARKET_OPEN
 
@@ -59,4 +84,4 @@ def run():
                   else settings.OVERNIGHT_SLEEP
         time.sleep(sleep_s)
 
-    logger.info("boss: SHUTTING_DOWN ? exiting")
+    logger.info("boss: SHUTTING_DOWN -> exiting")

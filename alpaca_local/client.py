@@ -6,7 +6,6 @@ from alpaca.trading.requests import (
 )
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, OrderType
 from config import settings
-from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -115,11 +114,11 @@ def build_bracket_order(symbol, qty, side, limit_price, take_profit_price, stop_
         **kwargs
     )
 
-def build_oco_order(symbol, qty, side, take_profit_price, stop_loss_price, **kwargs):
+def build_oco_order(symbol, qty, side, limit_price, take_profit_price, stop_loss_price, **kwargs):
     """OCO ? one-cancels-other for closing an existing position."""
     return LimitOrderRequest(
         symbol=symbol, qty=qty, side=side,
-        limit_price=take_profit_price,
+        limit_price=limit_price,
         order_class=OrderClass.OCO,
         take_profit={"limit_price": take_profit_price},
         stop_loss={"stop_price": stop_loss_price},
@@ -153,5 +152,38 @@ def build_mleg_order(legs, qty, limit_price, time_in_force=TimeInForce.DAY):
     }
 
 def submit_order(order_request):
-    """Submit any order request to Alpaca."""
+    """Submit any order request to Alpaca. Respects DRY_RUN mode."""
+    if settings.DRY_RUN:
+        logger.info(f"DRY_RUN: would submit order: {order_request}")
+        return _mock_order(order_request)
+    if isinstance(order_request, dict):
+        # Multi-leg orders use raw REST (alpaca-py has no typed mleg request)
+        import requests as _req
+        resp = _req.post(
+            f"{settings.BASE_URL}/v2/orders",
+            json=order_request,
+            headers={
+                "APCA-API-KEY-ID": settings.APCA_KEY,
+                "APCA-API-SECRET-KEY": settings.APCA_SECRET,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
     return _client.submit_order(order_request)
+
+def _mock_order(req):
+    """Return a minimal mock order for DRY_RUN mode."""
+    import uuid
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        id=f"dry-{uuid.uuid4().hex[:8]}",
+        client_order_id=getattr(req, "client_order_id", None) or (req.get("client_order_id") if isinstance(req, dict) else "dry-run"),
+        status="accepted",
+        symbol=getattr(req, "symbol", None) or (req.get("symbol") if isinstance(req, dict) else "???"),
+        qty=getattr(req, "qty", None) or (req.get("qty") if isinstance(req, dict) else 0),
+        side=getattr(req, "side", None) or (req.get("side") if isinstance(req, dict) else "buy"),
+        filled_avg_price=None,
+        filled_qty=0,
+        order_type="market",
+    )

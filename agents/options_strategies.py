@@ -15,19 +15,31 @@ import logging
 import datetime
 import shared
 from config import settings
+from storage import database
 
 logger = logging.getLogger(__name__)
 
 
 def _get_options_chain(symbol: str) -> list:
-    """Get available options contracts for a symbol from ref library."""
-    with shared.cache_lock:
-        assets = shared.assets
-    contracts = []
-    for sym, asset in assets.items():
-        if hasattr(asset, 'underlying_symbol') and asset.underlying_symbol == symbol:
-            contracts.append(asset)
-    return contracts
+    """Get available options contracts for a symbol from database or Alpaca API."""
+    # First try database (populated by ref_library._fetch_option_chains)
+    chain = database.read_option_chain_latest(symbol)
+    if chain:
+        return chain
+    # Fallback: live API call
+    try:
+        from alpaca_local import client as alpaca
+        contracts = alpaca.get_options_contracts(
+            underlying_symbols=[symbol],
+            status="active",
+        )
+        if contracts:
+            contract_list = list(contracts)
+            database.write_option_chain(contract_list)
+            return contract_list
+    except Exception as e:
+        logger.debug(f"options_strategies: chain lookup failed for {symbol}: {e}")
+    return []
 
 
 def _select_expiry(contracts: list, target_dte: int = 30, max_dte: int = 45) -> list:

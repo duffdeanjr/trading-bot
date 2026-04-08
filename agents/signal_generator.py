@@ -6,11 +6,10 @@ IV rank, improved sentiment, and options strategy selection.
 import time
 import logging
 import threading
-import time
-import logging
-import threading
+import math
 import shared
 from config import settings
+from storage import database
 from alpaca_local import stream as alpaca_stream
 from agents import indicators, iv_engine, sentiment, options_strategies, plan_manager
 
@@ -64,19 +63,50 @@ def _on_news(event):
             _news[sym].append(event)
             _news[sym] = _news[sym][-10:]  # keep last 10 per symbol
 
-# -- screener -----------------------------------------------------------------
-def _run_screener() -> list:
-    with shared.cache_lock:
-        assets = shared.assets
-    return [
-        a.symbol for a in assets.values()
-        if getattr(a, "tradable", False) and getattr(a, "status", "") == "active"
-    ][:200]
+# -- strategy scoring feedback loop -------------------------------------------
+_strategy_scores_cache: dict = {}  # strategy -> score dict (refreshed periodically)
+_scores_last_refresh = 0.0
 
-def _update_ticker_list(symbols: list):
+def _refresh_strategy_scores():
+    """Compute rolling strategy scores from closed outcomes and cache them."""
+    global _strategy_scores_cache, _scores_last_refresh
+    if time.time() - _scores_last_refresh < 300:  # refresh every 5 min
+        return
+    strategies = database.get_distinct_strategies()
+    for strat in strategies:
+        closed = database.get_closed_outcomes(strategy=strat, limit=50)
+        if len(closed) < 5:
+            continue
+        wins = [t for t in closed if (t.get("pnl") or 0) > 0]
+        win_rate = len(wins) / len(closed)
+        avg_pnl = sum(t.get("pnl_pct", 0) or 0 for t in closed) / len(closed)
+        returns = [t.get("pnl_pct", 0) or 0 for t in closed]
+        std = math.sqrt(sum((r - avg_pnl)**2 for r in returns) / len(returns))
+        sharpe = avg_pnl / std if std > 0 else 0
+        score = (0.4 * win_rate
+                 + 0.3 * min(max(sharpe, 0), 2) / 2
+                 + 0.3 * min(max(avg_pnl, 0), 0.1) / 0.1)
+        database.write_strategy_score(strat, win_rate, avg_pnl, sharpe, len(closed), score)
+        _strategy_scores_cache[strat] = {
+            "win_rate": win_rate, "avg_pnl_pct": avg_pnl,
+            "sharpe": sharpe, "trade_count": len(closed), "score": score,
+        }
+    _scores_last_refresh = time.time()
+
+def _adjust_confidence(confidence: float, strategy: str) -> float:
+    """Adjust signal confidence by historical strategy performance."""
+    score_data = _strategy_scores_cache.get(strategy)
+    if not score_data or score_data.get("trade_count", 0) < 10:
+        return confidence  # not enough data
+    # Scale confidence by 0.5x to 1.5x based on score (0-1)
+    multiplier = 0.5 + score_data["score"]
+    return min(round(confidence * multiplier, 3), 1.0)
+
+# -- watchlist ----------------------------------------------------------------
+def _get_watchlist() -> list:
+    """Return current watchlist (set by boss from settings or Alpaca API)."""
     with shared.cache_lock:
-        shared.ticker_list = symbols
-        shared.ticker_ts   = time.time()
+        return list(shared.watchlist) if shared.watchlist else list(shared.ticker_list)
 
 # -- signal emission ----------------------------------------------------------
 def _build_ohlcv(symbol: str) -> dict:
@@ -151,10 +181,10 @@ def _emit_equity_signals(symbols: list) -> list:
         signals_for_symbol = []
 
         # 1. RSI oversold + positive sentiment + bullish EMA = buy
-        if (rsi_val and rsi_val < 35
+        if (rsi_val and rsi_val < settings.RSI_OVERSOLD
                 and sent_score > 0.1
                 and ema_d.get("cross") != "bearish"):
-            confidence = 0.5 + (35 - rsi_val) / 70 + sent_score * 0.2
+            confidence = 0.5 + (settings.RSI_OVERSOLD - rsi_val) / 70 + sent_score * 0.2
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "buy",
@@ -185,7 +215,7 @@ def _emit_equity_signals(symbols: list) -> list:
             })
 
         # 4. RSI overbought = sell signal
-        if rsi_val and rsi_val > 70 and sent_score < 0:
+        if rsi_val and rsi_val > settings.RSI_OVERBOUGHT and sent_score < 0:
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "sell",
@@ -236,11 +266,17 @@ def _emit_equity_signals(symbols: list) -> list:
                         sig["confidence"] = 0.60
                         signals_for_symbol.append(sig)
 
-        # Deduplicate and add to batch
+        # Adjust confidence by strategy score, deduplicate, log to DB, add to batch
         for sig in signals_for_symbol:
             key_side = sig.get("side", "buy")
             key_strat = sig.get("strategy", "unknown")
             if not _already_emitted(symbol, key_side, key_strat):
+                sig["confidence"] = _adjust_confidence(sig.get("confidence", 0.5), key_strat)
+                database.write_signal(
+                    ts=time.time(), symbol=symbol, strategy=key_strat,
+                    side=key_side, confidence=sig.get("confidence"),
+                    sentiment=sig.get("sentiment"), raw=str(sig),
+                )
                 batch.append(sig)
 
     return batch
@@ -310,8 +346,8 @@ def run():
             time.sleep(settings.TICK_INTERVAL)
             continue
 
-        symbols = _run_screener()
-        _update_ticker_list(symbols)
+        symbols = _get_watchlist()
+        _refresh_strategy_scores()
 
         equity_signals = _emit_equity_signals(symbols)
         crypto_signals = _emit_crypto_signals()

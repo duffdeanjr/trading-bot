@@ -238,15 +238,15 @@ def _execute_toward_targets():
     For each symbol where current allocation differs from target by > threshold,
     emit an order to close the gap.
     """
-    from agents import plan_manager, portfolio_heat
+    from agents import plan_manager, risk_manager
 
     # Check if heat allows new positions
-    can_trade, reason = portfolio_heat.can_add_position()
+    can_trade, reason = risk_manager.can_add_position()
     if not can_trade:
         logger.debug(f"order_exec: skipping target execution: {reason}")
         return
 
-    size_mult = portfolio_heat.get_size_multiplier()
+    size_mult = risk_manager.get_size_multiplier()
     if size_mult <= 0:
         return
 

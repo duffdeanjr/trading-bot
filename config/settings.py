@@ -33,10 +33,16 @@ DATA_FEED = "iex"       # "iex" (free) | "sip" (Algo Trader Plus, $99/mo)
 # ── database (decision: SQLite) ───────────────────────────────
 DB_PATH = "trading.db"  # swap to postgres:// URI to migrate later
 
-# ── downloads ─────────────────────────────────────────────────
-# Single folder for all data files fetched by ref_library.
-# Subfolders: historical_bars/ | news/ | options/ | corporate_actions/
-DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downloads")
+# ── watchlist ─────────────────────────────────────────────────
+WATCHLIST        = [s.strip() for s in os.getenv("WATCHLIST", "AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,SPY,QQQ,IWM").split(",") if s.strip()]
+WATCHLIST_ALPACA = os.getenv("WATCHLIST_ALPACA", "")  # Alpaca watchlist name to fetch
+CRYPTO_WATCHLIST = [s.strip() for s in os.getenv("CRYPTO_WATCHLIST", "BTC/USD,ETH/USD").split(",") if s.strip()]
+
+# ── dry run ───────────────────────────────────────────────────
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
+
+# ── retention ─────────────────────────────────────────────────
+RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "90"))
 
 # ── options (decision: Level 3) ───────────────────────────────
 OPTIONS_LEVEL    = 3     # 1 | 2 | 3 — must match Alpaca account approval
@@ -46,9 +52,30 @@ EXPIRY_WARN_DAYS = 2     # flag short options this many days before expiry
 # ── execution (decision: no VWAP/TWAP) ───────────────────────
 VWAP_TWAP = False        # requires Alpaca Elite Smart Router ($30k deposit)
 
-# ── risk limits (NEW from diagnostic) ────────────────────────
-MAX_POSITION_SIZE = 10000 # max notional per single order in USD
-MAX_PORTFOLIO_PCT = 0.15  # max % of portfolio in any one symbol (15%)
+# ── risk limits ───────────────────────────────────────────────
+MAX_POSITION_SIZE   = float(os.getenv("MAX_POSITION_SIZE", "10000"))
+MAX_PORTFOLIO_PCT   = float(os.getenv("MAX_PORTFOLIO_PCT", "0.15"))
+MARGIN_MIN_EQUITY   = float(os.getenv("MARGIN_MIN_EQUITY", "2000"))
+
+# ── circuit breaker ───────────────────────────────────────────
+MAX_DAILY_LOSS_PCT      = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.05"))
+MAX_CONSECUTIVE_LOSSES  = int(os.getenv("MAX_CONSECUTIVE_LOSSES", "5"))
+
+# ── signal thresholds ────────────────────────────────────────
+RSI_OVERSOLD    = float(os.getenv("RSI_OVERSOLD", "35"))
+RSI_OVERBOUGHT  = float(os.getenv("RSI_OVERBOUGHT", "70"))
+RISK_FREE_RATE  = float(os.getenv("RISK_FREE_RATE", "0.05"))
+
+# ── portfolio heat / VIX ─────────────────────────────────────
+VIX_NORMAL  = float(os.getenv("VIX_NORMAL", "20"))
+VIX_CAUTION = float(os.getenv("VIX_CAUTION", "25"))
+VIX_HIGH    = float(os.getenv("VIX_HIGH", "35"))
+VIX_EXTREME = float(os.getenv("VIX_EXTREME", "45"))
+HEAT_MAX    = float(os.getenv("HEAT_MAX", "0.80"))
+HEAT_WARN   = float(os.getenv("HEAT_WARN", "0.60"))
+
+# ── dashboard ────────────────────────────────────────────────
+DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5050"))
 
 # ── rebalancing ──────────────────────────────────────────────
 REBALANCE_THRESHOLD = 0.03  # only rebalance when allocation gap > 3%
