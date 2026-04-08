@@ -41,6 +41,9 @@ CRYPTO_WATCHLIST = [s.strip() for s in os.getenv("CRYPTO_WATCHLIST", "BTC/USD,ET
 # ── dry run ───────────────────────────────────────────────────
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
 
+# ── streams ──────────────────────────────────────────────────
+STREAMS_MINIMAL = os.getenv("STREAMS_MINIMAL", "false").lower() in ("true", "1", "yes")
+
 # ── retention ─────────────────────────────────────────────────
 RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "90"))
 

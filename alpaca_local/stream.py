@@ -91,20 +91,31 @@ def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
         symbols_crypto = cl if cl else ["BTC/USD", "ETH/USD"]
     symbols_option = symbols_option or ["*"]
 
+    # Essential streams (trade + stock) — always start
     _streams["trade"]  = _build_trading_stream()
     _streams["stock"]  = _build_stock_stream()
-    _streams["crypto"] = _build_crypto_stream()
 
-    if settings.OPTIONS_ENABLED:
+    # Optional streams — skip if STREAMS_MINIMAL=true (reduces connection count)
+    minimal = getattr(settings, "STREAMS_MINIMAL", False)
+
+    if not minimal:
+        _streams["crypto"] = _build_crypto_stream()
+    else:
+        logger.info("stream: skipping crypto stream (STREAMS_MINIMAL=true)")
+
+    if settings.OPTIONS_ENABLED and not minimal:
         try:
             _streams["option"] = _build_option_stream()
         except Exception as e:
             logger.warning(f"stream: option stream unavailable: {e}")
 
-    try:
-        _streams["news"] = _build_news_stream()
-    except Exception as e:
-        logger.warning(f"stream: news stream unavailable: {e}")
+    if not minimal:
+        try:
+            _streams["news"] = _build_news_stream()
+        except Exception as e:
+            logger.warning(f"stream: news stream unavailable: {e}")
+    else:
+        logger.info("stream: skipping news stream (STREAMS_MINIMAL=true)")
 
     # Subscribe stock
     async def _on_bar(data):      _dispatch("stock", data)
@@ -118,10 +129,11 @@ def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
     # bars and quotes exceeds IEX subscription limits (405 error)
     if symbols_equity != ["*"]:
         _streams["stock"].subscribe_quotes(_on_quote, *symbols_equity)
-    # Crypto stream doesn't support wildcard '*' — subscribe to specific pairs
-    if symbols_crypto == ["*"]:
-        symbols_crypto = ["BTC/USD", "ETH/USD", "PAXG/USD"]
-    _streams["crypto"].subscribe_bars(_on_crypto, *symbols_crypto)
+    # Crypto stream (only if started)
+    if "crypto" in _streams:
+        if symbols_crypto == ["*"]:
+            symbols_crypto = ["BTC/USD", "ETH/USD", "PAXG/USD"]
+        _streams["crypto"].subscribe_bars(_on_crypto, *symbols_crypto)
 
     if "option" in _streams:
         try:
@@ -135,22 +147,19 @@ def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
         except Exception as e:
             logger.warning(f"stream: news subscribe failed: {e}")
 
-    import random
-
-    def _run_with_reconnect(sname, sobj):
-        while not shared.SHUTTING_DOWN:
-            try:
-                sobj.run()
-            except Exception as e:
-                logger.error(f"stream '{sname}' disconnected: {e}")
+    def _run_stream(sname, sobj):
+        """Run a stream, letting alpaca-py handle its own reconnection.
+        Only our wrapper catches fatal exits and tracks reconnect counts."""
+        try:
+            sobj.run()  # alpaca-py has internal reconnect with backoff
+        except Exception as e:
+            if not shared.SHUTTING_DOWN:
+                logger.error(f"stream '{sname}' fatal exit: {e}")
                 reconnect_count[sname] = reconnect_count.get(sname, 0) + 1
-                backoff = min(2 ** reconnect_count[sname], 60) + random.uniform(0, 2)
-                time.sleep(backoff)
-        logger.info(f"stream '{sname}' exiting (SHUTTING_DOWN)")
 
     for name, stream in _streams.items():
         try:
-            t = threading.Thread(target=_run_with_reconnect, args=(name, stream),
+            t = threading.Thread(target=_run_stream, args=(name, stream),
                                  name=f"stream-{name}", daemon=True)
             t.start()
             logger.info(f"alpaca_local.stream: stream started: {name}")
