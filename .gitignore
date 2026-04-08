@@ -1,0 +1,20 @@
+# environment
+.env
+
+# downloaded data (managed by ref_library — do not commit)
+downloads/historical_bars/
+downloads/news/
+downloads/options/
+downloads/corporate_actions/
+
+# database
+*.db
+*.db-shm
+*.db-wal
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
