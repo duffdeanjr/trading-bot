@@ -53,6 +53,11 @@ investment_plan = None  # OWNER: plan_manager (cached plan dict)
 # ref_library reads and re-fetches bars for that symbol, then clears the entry.
 dirty_symbols = set()   # OWNER: account_agent writes, ref_library clears
 
+# ── dashboard controls (GIL-safe bool writes, no lock needed) ─
+# Written by dashboard.py POST handlers; read by order_execution.
+trading_paused  = False  # OWNER: dashboard pause/resume endpoints
+force_rebalance = False  # OWNER: dashboard force-rebalance endpoint; order_execution clears after acting
+
 # ── agent health — guarded by errors_lock ─────────────────────
 AGENT_ERRORS = {}       # OWNER: supervisor wrapper in main.py
                         # {agent_name: {"count": int, "last_error": str, "last_ts": float}}

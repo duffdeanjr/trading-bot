@@ -222,7 +222,12 @@ def run():
 
     while not shared.SHUTTING_DOWN:
         try:
-            if shared.MARKET_OPEN and not shared.RATE_LIMITED:
+            if shared.trading_paused:
+                logger.debug("order_exec: paused by dashboard")
+            elif shared.MARKET_OPEN and not shared.RATE_LIMITED:
+                if shared.force_rebalance:
+                    shared.force_rebalance = False
+                    logger.info("order_exec: force rebalance triggered by dashboard")
                 _execute_toward_targets()
         except Exception as e:
             logger.error(f"order_exec: target execution error: {e}")

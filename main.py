@@ -134,7 +134,7 @@ def main():
     logger.info("step 5: starting streams")
     alpaca_stream.start()
     shared.stream_ready_event.wait(timeout=30)
-    logger.info("step 5: stream_ready_event received ? all 5 streams live")
+    logger.info("step 5: stream_ready_event received - stream threads launched (WebSocket connections completing async)")
 
     # -- step 6: independents - wait for account_ready_event ----
     t_acct = _start_thread(account_agent.run,    "account_agent")

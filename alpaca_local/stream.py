@@ -83,12 +83,13 @@ def _build_news_stream():
 
 def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
     # Default to watchlist symbols instead of wildcard to avoid IEX 405 errors
-    if symbols_equity is None:
-        wl = [s for s in (shared.watchlist or []) if "/" not in s]
-        symbols_equity = wl if wl else ["*"]
-    if symbols_crypto is None:
-        cl = [s for s in (shared.watchlist or []) if "/" in s]
-        symbols_crypto = cl if cl else ["BTC/USD", "ETH/USD"]
+    if symbols_equity is None or symbols_crypto is None:
+        with shared.cache_lock:
+            wl = list(shared.watchlist)
+        if symbols_equity is None:
+            symbols_equity = [s for s in wl if "/" not in s] or ["*"]
+        if symbols_crypto is None:
+            symbols_crypto = [s for s in wl if "/" in s] or ["BTC/USD", "ETH/USD"]
     symbols_option = symbols_option or ["*"]
 
     # Essential streams (trade + stock) — always start
@@ -166,8 +167,10 @@ def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
         except Exception as e:
             logger.warning(f"stream: could not start {name}: {e}")
 
+    # stream_ready_event signals that all stream threads have been launched.
+    # Actual WebSocket connections complete asynchronously inside each thread.
     shared.stream_ready_event.set()
-    logger.info("alpaca_local.stream: stream_ready_event set - all streams running")
+    logger.info("alpaca_local.stream: stream_ready_event set - stream threads launched (connecting async)")
 
 def get_heartbeats() -> dict:
     return dict(heartbeat)
