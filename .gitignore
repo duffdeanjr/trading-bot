@@ -20,3 +20,4 @@ __pycache__/
 venv/
 .claude/ 
 bot.log 
+bot.log* 
