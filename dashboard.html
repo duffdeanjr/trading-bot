@@ -1,1437 +1,1648 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Trading Bot — Command Center</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    :root {
-      --bg-primary: #0a0e17;
-      --bg-secondary: #111827;
-      --bg-card: #1a2332;
-      --bg-card-hover: #1f2b3d;
-      --border: #2a3548;
-      --text-primary: #e2e8f0;
-      --text-secondary: #94a3b8;
-      --accent-green: #10b981;
-      --accent-red: #ef4444;
-      --accent-blue: #3b82f6;
-      --accent-amber: #f59e0b;
-      --accent-purple: #8b5cf6;
-      --accent-cyan: #06b6d4;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      overflow-x: hidden;
-    }
-    .mono { font-family: 'JetBrains Mono', monospace; }
-    .glass {
-      background: rgba(26, 35, 50, 0.8);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
-    }
-    .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      transition: all 0.2s;
-    }
-    .card:hover { background: var(--bg-card-hover); border-color: #3a4a60; }
-    table tbody tr { transition: background 0.15s; }
-    table tbody tr:hover { background: rgba(59,130,246,0.06); }
-    .glow-green { box-shadow: 0 0 20px rgba(16, 185, 129, 0.15); }
-    .glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.15); }
-    .glow-blue { box-shadow: 0 0 20px rgba(59, 130, 246, 0.15); }
-    .pulse-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-    .slide-in { animation: slideIn 0.3s ease-out; }
-    @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    .fade-in { animation: fadeIn 0.4s ease-out; }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .scrollbar-thin::-webkit-scrollbar { width: 4px; }
-    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-    .btn {
-      padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
-      cursor: pointer; border: none; transition: all 0.15s;
-    }
-    .btn-primary { background: var(--accent-blue); color: white; }
-    .btn-primary:hover { background: #2563eb; }
-    .btn-danger { background: var(--accent-red); color: white; }
-    .btn-danger:hover { background: #dc2626; }
-    .btn-success { background: var(--accent-green); color: white; }
-    .btn-success:hover { background: #059669; }
-    .btn-amber { background: var(--accent-amber); color: #1a1a1a; }
-    .btn-amber:hover { background: #d97706; }
-    .btn-ghost {
-      background: transparent; color: var(--text-secondary);
-      border: 1px solid var(--border);
-    }
-    .btn-ghost:hover { background: var(--bg-card); color: var(--text-primary); }
-    .status-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .badge-live { background: rgba(16,185,129,0.15); color: var(--accent-green); }
-    .badge-paused { background: rgba(245,158,11,0.15); color: var(--accent-amber); }
-    .badge-error { background: rgba(239,68,68,0.15); color: var(--accent-red); }
-    .badge-offline { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
-    .tab-active {
-      background: var(--bg-card); color: var(--text-primary);
-      border-bottom: 2px solid var(--accent-blue);
-    }
-    .exec-role {
-      border-left: 3px solid transparent; padding: 16px;
-      cursor: pointer; transition: all 0.2s;
-    }
-    .exec-role:hover { background: var(--bg-card-hover); }
-    .exec-role.active { border-left-color: var(--accent-blue); background: var(--bg-card); }
-    .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-      backdrop-filter: blur(4px); z-index: 100;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .modal-content {
-      background: var(--bg-secondary); border: 1px solid var(--border);
-      border-radius: 16px; padding: 24px; max-width: 560px; width: 90%;
-      max-height: 80vh; overflow-y: auto;
-    }
-    .progress-ring { transform: rotate(-90deg); }
-    .tooltip {
-      position: relative;
-    }
-    .tooltip::after {
-      content: attr(data-tip); position: absolute; bottom: 120%;
-      left: 50%; transform: translateX(-50%);
-      background: #1e293b; color: #e2e8f0;
-      padding: 4px 8px; border-radius: 4px; font-size: 11px;
-      white-space: nowrap; opacity: 0; pointer-events: none;
-      transition: opacity 0.15s;
-    }
-    .tooltip:hover::after { opacity: 1; }
-    .grid-dashboard {
-      display: grid;
-      grid-template-columns: 1fr 360px;
-      grid-template-rows: auto;
-      gap: 0;
-      height: calc(100vh - 56px);
-    }
-    .main-content {
-      overflow-y: auto; padding: 20px;
-    }
-    .exec-sidebar {
-      border-left: 1px solid var(--border);
-      overflow-y: auto;
-      background: var(--bg-secondary);
-    }
-    select, input[type="number"], input[type="text"], textarea {
-      background: var(--bg-primary); border: 1px solid var(--border);
-      color: var(--text-primary); border-radius: 8px; padding: 8px 12px;
-      font-size: 13px; font-family: 'Inter', sans-serif;
-    }
-    select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent-blue); }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Base ──────────────────────────────────────────── */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+canvas[height] { display: block; }
+canvas#chartIntraday { height: 100px !important; }
+canvas#chartEquity { height: 130px !important; }
+canvas#chartDailyPnl { height: 110px !important; }
+canvas#chartDistribution { height: 110px !important; }
+canvas#chartSignalConf { height: 100px !important; }
+canvas#chartHeartbeat { height: 50px !important; }
+canvas#chartRejections { height: 100px !important; }
+:root {
+  --bg-void: #060a14;
+  --bg-card: rgba(255,255,255,0.04);
+  --bg-card-hover: rgba(255,255,255,0.06);
+  --border: rgba(255,255,255,0.08);
+  --border-hover: rgba(255,255,255,0.15);
+  --green: #00ff88;
+  --green-dim: rgba(0,255,136,0.15);
+  --green-glow: rgba(0,255,136,0.4);
+  --red: #ff4466;
+  --red-dim: rgba(255,68,102,0.12);
+  --amber: #ffaa00;
+  --amber-dim: rgba(255,170,0,0.12);
+  --cyan: #22d3ff;
+  --purple: #b49bff;
+  --yellow: #ffff88;
+  --text-1: #f5f5fa;
+  --text-2: #c8c8d0;
+  --text-3: #8888a0;
+  --text-4: #555568;
+  --font-display: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+}
+body {
+  background: var(--bg-void);
+  color: var(--text-1);
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-x: hidden;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--cyan); text-decoration: none; }
+
+/* ── Particle Canvas ───────────────────────────────────────── */
+#particles {
+  position: fixed; top:0; left:0; width:100%; height:100%;
+  z-index: 0; opacity: 0.18; pointer-events: none;
+}
+
+/* ── Layout Shell ──────────────────────────────────────────── */
+.shell { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 16px 24px 40px; }
+
+/* ── Header ────────────────────────────────────────────────── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 20px;
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.bot-name { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; color: var(--text-1); }
+.pulse-dot {
+  width: 12px; height: 12px; border-radius: 50%; background: var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{ opacity:1; } 50%{ opacity:0.3; } }
+.badge {
+  font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 20px;
+  letter-spacing: 0.5px; text-transform: uppercase;
+}
+.badge-live { background: var(--green-dim); color: var(--green); }
+.badge-paper { background: var(--amber-dim); color: var(--amber); }
+.badge-market { background: rgba(0,200,255,0.12); color: var(--cyan); }
+.badge-closed { background: rgba(255,255,255,0.06); color: var(--text-3); }
+.header-right { display: flex; align-items: center; gap: 14px; }
+.clock { font-family: var(--font-mono); font-size: 15px; color: var(--text-2); }
+.btn-emergency {
+  padding: 8px 18px; border-radius: var(--radius-xs); font-size: 13px; font-weight: 600;
+  color: var(--red); background: var(--red-dim); border: 1px solid rgba(255,68,102,0.3);
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-emergency:hover { background: rgba(255,68,102,0.2); border-color: rgba(255,68,102,0.5); }
+
+/* ── Tabs ──────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-bottom: 20px; }
+.tab {
+  padding: 8px 20px; border-radius: var(--radius-xs); font-size: 14px; font-weight: 500;
+  color: var(--text-3); background: rgba(255,255,255,0.04); border: 1px solid transparent;
+  cursor: pointer; transition: all 0.2s; user-select: none;
+}
+.tab:hover { color: var(--text-2); background: rgba(255,255,255,0.06); }
+.tab.active {
+  color: var(--green); background: rgba(0,255,136,0.08);
+  border-color: rgba(0,255,136,0.2);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
+
+/* ── Cards ─────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px; transition: border-color 0.2s;
+  overflow: hidden; min-width: 0;
+}
+.card:hover { border-color: var(--border-hover); }
+.card-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--text-3); margin-bottom: 8px;
+}
+.card-value { font-size: 28px; font-weight: 700; color: var(--text-1); }
+.card-sub { font-size: 13px; color: var(--text-2); margin-top: 4px; }
+
+/* ── Grids ─────────────────────────────────────────────────── */
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+.grid-5 { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+.grid-2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+.grid-3-2 { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; }
+.mb { margin-bottom: 16px; }
+
+/* ── Alert Banner ──────────────────────────────────────────── */
+.alert-banner {
+  background: var(--amber-dim); border: 1px solid rgba(255,170,0,0.2);
+  border-radius: var(--radius); padding: 12px 16px;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+}
+.alert-banner.alert-ok { display: none; }
+.alert-banner svg { flex-shrink: 0; }
+.alert-text { font-size: 14px; }
+.alert-label { color: var(--amber); font-weight: 600; }
+.alert-detail { color: var(--text-1); }
+
+/* ── Metric Stat ───────────────────────────────────────────── */
+.stat-card { text-align: center; }
+.stat-card .card-value { font-size: 24px; }
+
+/* ── Positions Table ───────────────────────────────────────── */
+.pos-table { width: 100%; font-size: 14px; border-collapse: collapse; }
+.pos-table th {
+  text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text-3); padding: 6px 0 10px; border-bottom: 1px solid var(--border);
+}
+.pos-table td { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-1); }
+.pos-table .sym { font-weight: 600; }
+.pos-table .sym-crypto { color: var(--amber); }
+.pos-table .sym-stock { color: var(--cyan); }
+.pos-table .sym-etf { color: var(--purple); }
+.pnl-pos { color: var(--green); }
+.pnl-neg { color: var(--red); }
+.pnl-zero { color: var(--text-3); }
+
+/* ── Progress Bars ─────────────────────────────────────────── */
+.prog-track { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
+
+/* ── Donut Chart (CSS) ─────────────────────────────────────── */
+.donut-wrap { display: flex; align-items: center; gap: 16px; }
+.donut-legend { font-size: 13px; }
+.donut-legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.donut-swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ── Org Chart ─────────────────────────────────────────────── */
+.org-center { display: flex; justify-content: center; }
+.org-node {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 18px; text-align: center;
+}
+.org-node-ceo { border-color: rgba(0,255,136,0.2); background: rgba(0,255,136,0.04); }
+.org-node svg { display: block; margin: 0 auto 6px; }
+.org-node-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.org-node-role { font-size: 11px; color: var(--text-3); }
+.org-line { width: 1px; height: 16px; background: rgba(0,255,136,0.15); margin: 0 auto; }
+.org-hline { width: 60%; height: 1px; background: rgba(0,255,136,0.1); margin: 0 auto; }
+.org-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; }
+
+/* ── Status Dots ───────────────────────────────────────────── */
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+}
+.dot-ok { background: var(--green); }
+.dot-warn { background: var(--amber); }
+.dot-err { background: var(--red); }
+
+/* ── Trade Log ─────────────────────────────────────────────── */
+.trade-table { width: 100%; font-size: 13px; border-collapse: collapse; font-family: var(--font-mono); }
+.trade-table th {
+  text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text-3); padding: 6px 10px 8px 0;
+}
+.trade-table td { padding: 7px 10px 7px 0; color: var(--text-2); }
+.trade-table .side-buy { color: var(--green); font-weight: 600; }
+.trade-table .side-sell { color: var(--red); font-weight: 600; }
+
+/* ── Uptime Bars ───────────────────────────────────────────── */
+.uptime-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.uptime-label { width: 75px; font-size: 12px; color: var(--text-1); flex-shrink: 0; }
+.uptime-bar {
+  flex: 1; height: 10px; background: rgba(255,255,255,0.04);
+  border-radius: 3px; overflow: hidden; display: flex;
+}
+.up-ok { background: var(--green); opacity: 0.45; }
+.up-crash { background: var(--red); opacity: 0.7; }
+.up-warn { background: var(--amber); opacity: 0.6; }
+
+/* ── Stream Health ─────────────────────────────────────────── */
+.stream-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.stream-name { width: 70px; color: var(--text-1); }
+.stream-bar { flex: 1; }
+.stream-time { font-size: 11px; color: var(--text-3); min-width: 55px; text-align: right; }
+
+/* ── Error Log ─────────────────────────────────────────────── */
+.err-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.err-item:last-child { border-bottom: none; }
+.err-head { display: flex; justify-content: space-between; font-size: 13px; }
+.err-msg { color: var(--amber); font-weight: 500; }
+.err-time { color: var(--text-3); font-family: var(--font-mono); font-size: 12px; }
+.err-detail { color: var(--text-2); font-size: 12px; margin-top: 3px; }
+
+/* ── Scrollable ────────────────────────────────────────────── */
+.scroll-y { max-height: 260px; overflow-y: auto; }
+.scroll-y::-webkit-scrollbar { width: 4px; }
+.scroll-y::-webkit-scrollbar-track { background: transparent; }
+.scroll-y::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+/* ── Show More Link ────────────────────────────────────────── */
+.show-more {
+  text-align: center; margin-top: 10px; font-size: 13px;
+  color: var(--green); opacity: 0.7; cursor: pointer;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .grid-4, .grid-5 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3, .grid-2, .grid-3-2 { grid-template-columns: 1fr; }
+  .org-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
 </head>
 <body>
 
-<!-- ═══════════════════ TOP NAV BAR ═══════════════════ -->
-<header class="glass" style="height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 20px; position:sticky; top:0; z-index:50;">
-  <div style="display:flex; align-items:center; gap:16px;">
-    <div style="display:flex; align-items:center; gap:8px;">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      <span style="font-weight:700; font-size:15px; letter-spacing:-0.3px;">Trading Bot</span>
-      <span style="font-size:11px; color:var(--text-secondary); margin-left:4px;">Command Center</span>
+<canvas id="particles"></canvas>
+
+<div class="shell">
+  <!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
+  <header class="header">
+    <div class="header-left">
+      <div class="pulse-dot" id="pulseDot"></div>
+      <span class="bot-name">TRADING BOT</span>
+      <span class="badge badge-live" id="badgeLive">LIVE</span>
+      <span class="badge badge-paper" id="badgePaper">PAPER</span>
+      <span class="badge badge-market" id="badgeMarket">MARKET OPEN</span>
     </div>
-    <div id="systemStatus" class="status-badge badge-live">
-      <span class="pulse-dot" style="background:var(--accent-green);"></span>
-      LIVE
+    <div class="header-right">
+      <span class="clock" id="clock">--:--:--</span>
+      <button class="btn-emergency" id="btnEmergency">emergency stop</button>
     </div>
+  </header>
+
+  <!-- ═══════════════════════════ TABS ═════════════════════════════ -->
+  <div class="tabs">
+    <div class="tab active" data-tab="dashboard">Dashboard</div>
+    <div class="tab" data-tab="performance">Performance</div>
+    <div class="tab" data-tab="command">Command</div>
   </div>
-  <div style="display:flex; align-items:center; gap:16px;">
-    <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary);">
-      <span>Market:</span>
-      <span id="marketStatus" class="status-badge badge-live" style="font-size:10px;">
-        <span class="pulse-dot" style="background:var(--accent-green);"></span>
-        OPEN
-      </span>
-    </div>
-    <div class="mono" style="font-size:13px; color:var(--text-secondary);" id="clock"></div>
-    <button class="btn btn-danger" style="font-size:11px; padding:6px 12px;" onclick="emergencyStop()">
-      ⏹ EMERGENCY STOP
-    </button>
-  </div>
-</header>
 
-<!-- ═══════════════════ MAIN GRID ═══════════════════ -->
-<div class="grid-dashboard">
+  <!-- ═══════════════════════════ TAB 1: DASHBOARD ════════════════ -->
+  <div class="tab-content active" id="tab-dashboard">
 
-  <!-- ─── LEFT: MAIN DASHBOARD ─── -->
-  <div class="main-content scrollbar-thin">
-
-    <!-- KPI CARDS ROW -->
-    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px;" class="fade-in">
-      <div class="card" style="padding:16px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Portfolio Value</div>
-        <div class="mono" style="font-size:24px; font-weight:700;" id="portfolioValue">$100,000.00</div>
-        <div style="display:flex; align-items:center; gap:4px; margin-top:6px;">
-          <span id="pnlArrow" style="font-size:14px;">▲</span>
-          <span class="mono" id="pnlValue" style="font-size:13px; color:var(--accent-green);">+$1,245.80 (1.25%)</span>
-        </div>
+    <!-- Metric Cards -->
+    <div class="grid-4 mb">
+      <div class="card">
+        <div class="card-label">Portfolio value</div>
+        <div class="card-value" id="portValue">—</div>
+        <div class="card-sub" id="portChange">—</div>
+        <svg id="sparkIntraday" viewBox="0 0 120 24" style="width:100%;margin-top:8px;display:block;"></svg>
       </div>
-      <div class="card" style="padding:16px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Buying Power</div>
-        <div class="mono" style="font-size:24px; font-weight:700;" id="buyingPower">$75,420.00</div>
-        <div style="font-size:12px; color:var(--text-secondary); margin-top:6px;">
-          Cash: <span class="mono" id="cashValue">$85,200.00</span>
-        </div>
+      <div class="card">
+        <div class="card-label">Buying power</div>
+        <div class="card-value" id="buyingPower">—</div>
+        <div class="card-sub" id="cashVal">—</div>
       </div>
-      <div class="card" style="padding:16px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Today's Trades</div>
-        <div class="mono" style="font-size:24px; font-weight:700;" id="tradeCount">12</div>
-        <div style="font-size:12px; color:var(--text-secondary); margin-top:6px;">
-          Win rate: <span class="mono" style="color:var(--accent-green);" id="winRate">67%</span>
-        </div>
+      <div class="card">
+        <div class="card-label">Today's trades</div>
+        <div class="card-value" id="todayTrades">—</div>
+        <div class="card-sub" id="winRate">Win rate: —</div>
       </div>
-      <div class="card" style="padding:16px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Active Signals</div>
-        <div class="mono" style="font-size:24px; font-weight:700;" id="signalCount">5</div>
-        <div style="font-size:12px; color:var(--text-secondary); margin-top:6px;">
-          Confidence avg: <span class="mono" style="color:var(--accent-cyan);" id="avgConfidence">72%</span>
-        </div>
+      <div class="card">
+        <div class="card-label">Active signals</div>
+        <div class="card-value" id="activeSignals">0</div>
+        <div class="card-sub" id="avgConfidence">Avg confidence: —</div>
       </div>
     </div>
 
-    <!-- CHART + POSITIONS ROW -->
-    <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:12px; margin-bottom:20px;">
-      <!-- Portfolio Chart -->
-      <div class="card" style="padding:16px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <span style="font-size:13px; font-weight:600;">Portfolio Performance</span>
-          <div style="display:flex; gap:4px;">
-            <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="setChartRange('1D')">1D</button>
-            <button class="btn btn-ghost tab-active" style="padding:4px 8px; font-size:11px;" onclick="setChartRange('1W')">1W</button>
-            <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="setChartRange('1M')">1M</button>
-          </div>
-        </div>
-        <canvas id="portfolioChart" height="180"></canvas>
+    <!-- Alert Banner -->
+    <div class="alert-banner" id="alertBanner" style="display:none;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="currentColor" stroke-width="1.5"/></svg>
+      <div class="alert-text" id="alertText"></div>
+    </div>
+
+    <!-- Intraday P&L Chart -->
+    <div class="card mb">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <span class="card-label" style="margin:0;">Intraday P&L</span>
+        <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
       </div>
-      <!-- Positions -->
-      <div class="card" style="padding:16px; overflow:hidden;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <span style="font-size:13px; font-weight:600;">Open Positions</span>
-          <span class="mono" style="font-size:11px; color:var(--text-secondary);" id="posCount">0 positions</span>
+      <canvas id="chartIntraday" height="100"></canvas>
+    </div>
+
+    <!-- Allocation / Risk / P&L by Class -->
+    <div class="grid-3 mb">
+      <div class="card">
+        <div class="card-label">Allocation</div>
+        <div class="donut-wrap">
+          <canvas id="chartAllocation" width="90" height="90"></canvas>
+          <div class="donut-legend" id="allocLegend"></div>
         </div>
-        <div style="max-height:220px; overflow-y:auto;" class="scrollbar-thin" id="positionsTable">
-          <table style="width:100%; border-collapse:collapse; font-size:12px;">
-            <thead>
-              <tr style="color:var(--text-secondary); text-align:left;">
-                <th style="padding:6px 8px; font-weight:500;">Symbol</th>
-                <th style="padding:6px 8px; font-weight:500;">Qty</th>
-                <th style="padding:6px 8px; font-weight:500;">Value</th>
-                <th style="padding:6px 8px; font-weight:500;">P&L</th>
-              </tr>
-            </thead>
+      </div>
+      <div class="card">
+        <div class="card-label">Risk gauges</div>
+        <div id="riskGauges"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">P&L by asset class</div>
+        <div id="pnlByClass"></div>
+      </div>
+    </div>
+
+    <!-- Positions / Signals+Agents -->
+    <div class="grid-3-2">
+      <div class="card">
+        <div class="card-label">Positions</div>
+        <div class="scroll-y">
+          <table class="pos-table">
+            <thead><tr><th>Symbol</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
             <tbody id="positionsBody"></tbody>
           </table>
         </div>
       </div>
-    </div>
-
-    <!-- AGENTS + SIGNALS ROW -->
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px;">
-      <!-- Agent Status -->
-      <div class="card" style="padding:16px;">
-        <div style="font-size:13px; font-weight:600; margin-bottom:12px;">Agent Status</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;" id="agentGrid"></div>
-      </div>
-      <!-- Signals Feed -->
-      <div class="card" style="padding:16px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <span style="font-size:13px; font-weight:600;">Signals Feed</span>
-          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="clearSignals()">Clear</button>
+      <div class="card">
+        <div class="card-label">Recent signals</div>
+        <div id="signalsFeed" style="margin-bottom:16px;"></div>
+        <div style="border-top:1px solid var(--border);padding-top:12px;">
+          <div class="card-label">Agent status</div>
+          <div id="agentDots" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;"></div>
         </div>
-        <div style="max-height:220px; overflow-y:auto;" class="scrollbar-thin" id="signalsFeed"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ TAB 2: PERFORMANCE ══════════════ -->
+  <div class="tab-content" id="tab-performance">
+
+    <!-- Stat Cards -->
+    <div class="grid-5 mb">
+      <div class="card stat-card">
+        <div class="card-label">Net P&L</div>
+        <div class="card-value" id="netPnl">—</div>
+      </div>
+      <div class="card stat-card">
+        <div class="card-label">Win rate</div>
+        <div class="card-value" id="perfWinRate">—</div>
+      </div>
+      <div class="card stat-card">
+        <div class="card-label">Total trades</div>
+        <div class="card-value" id="totalTrades">—</div>
+      </div>
+      <div class="card stat-card">
+        <div class="card-label">Avg win</div>
+        <div class="card-value pnl-pos" id="avgWin">—</div>
+      </div>
+      <div class="card stat-card">
+        <div class="card-label">Avg loss</div>
+        <div class="card-value pnl-neg" id="avgLoss">—</div>
       </div>
     </div>
 
-    <!-- RECENT TRADES -->
-    <div class="card" style="padding:16px; margin-bottom:20px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <span style="font-size:13px; font-weight:600;">Recent Trades</span>
-        <span class="mono" style="font-size:11px; color:var(--text-secondary);">Last 20</span>
+    <!-- Equity Curve -->
+    <div class="card mb">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <span class="card-label" style="margin:0;">Equity curve</span>
+        <div style="display:flex;gap:6px;" id="eqToggles">
+          <span class="badge badge-live" style="cursor:pointer;font-size:12px;">1M</span>
+          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">3M</span>
+          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">YTD</span>
+          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">ALL</span>
+        </div>
       </div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%; border-collapse:collapse; font-size:12px;">
-          <thead>
-            <tr style="color:var(--text-secondary); text-align:left; border-bottom:1px solid var(--border);">
-              <th style="padding:8px;">Time</th>
-              <th style="padding:8px;">Symbol</th>
-              <th style="padding:8px;">Side</th>
-              <th style="padding:8px;">Qty</th>
-              <th style="padding:8px;">Price</th>
-              <th style="padding:8px;">Notional</th>
-              <th style="padding:8px;">Strategy</th>
-            </tr>
-          </thead>
-          <tbody id="tradesBody"></tbody>
+      <canvas id="chartEquity" height="130"></canvas>
+    </div>
+
+    <!-- Daily P&L / Trade Distribution -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Daily P&L (last 14 days)</div>
+        <canvas id="chartDailyPnl" height="110"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-label">Trade P&L distribution</div>
+        <canvas id="chartDistribution" height="110"></canvas>
+      </div>
+    </div>
+
+    <!-- Strategy Performance / Trades by Strategy -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Strategy performance</div>
+        <div id="stratPerf"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Trades by strategy</div>
+        <div class="donut-wrap" style="justify-content:center;">
+          <canvas id="chartStratMix" width="90" height="90"></canvas>
+          <div class="donut-legend" id="stratLegend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Investment Plan / Signal Confidence -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span class="card-label" style="margin:0;">Investment plan</span>
+          <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
+        </div>
+        <div id="planTargets"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Signal confidence scatter</div>
+        <canvas id="chartSignalConf" height="100"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;">
+          <span style="color:var(--text-4);font-size:11px;">oldest</span>
+          <span style="color:var(--text-4);font-size:11px;">Green = profitable · Red = loss</span>
+          <span style="color:var(--text-4);font-size:11px;">newest</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trade Log -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <span class="card-label" style="margin:0;">Trade log (filtered)</span>
+        <span style="color:var(--text-4);font-size:12px;">hiding $0 fills · aggregated</span>
+      </div>
+      <div class="scroll-y">
+        <table class="trade-table">
+          <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th>Strategy</th></tr></thead>
+          <tbody id="tradeLogBody"></tbody>
         </table>
       </div>
-    </div>
-
-    <!-- ACTIVITY LOG -->
-    <div class="card" style="padding:16px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <span style="font-size:13px; font-weight:600;">Activity Log</span>
-        <div style="display:flex; gap:4px;">
-          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="filterLog('all')">All</button>
-          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="filterLog('error')">Errors</button>
-          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="filterLog('exec')">Exec</button>
-        </div>
-      </div>
-      <div style="max-height:200px; overflow-y:auto;" class="scrollbar-thin" id="activityLog"></div>
+      <div class="show-more" id="tradeLogMore"></div>
     </div>
   </div>
 
-  <!-- ─── RIGHT: EXEC SUITE SIDEBAR ─── -->
-  <div class="exec-sidebar scrollbar-thin">
-    <!-- Exec Header -->
-    <div style="padding:16px 16px 0; border-bottom:1px solid var(--border);">
-      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        <span style="font-size:14px; font-weight:700;">Exec Suite</span>
-        <span class="status-badge badge-live" style="font-size:9px; margin-left:auto;">ACTIVE</span>
+  <!-- ═══════════════════════════ TAB 3: COMMAND ══════════════════ -->
+  <div class="tab-content" id="tab-command">
+
+    <!-- Agent Network Org Chart -->
+    <div class="card mb">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <span class="card-label" style="margin:0;">Agent network</span>
+        <div style="display:flex;gap:12px;">
+          <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-3);"><span class="status-dot dot-ok"></span> Running</span>
+          <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-3);"><span class="status-dot dot-err"></span> Error</span>
+          <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-3);"><span class="status-dot dot-warn"></span> Warning</span>
+        </div>
       </div>
-      <!-- Exec Role Tabs -->
-      <div style="display:flex; gap:0; margin:0 -16px;" id="execTabs">
-        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('ceo')" id="tab-ceo">
-          CEO
-        </button>
-        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('cro')" id="tab-cro">
-          CRO
-        </button>
-        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('cio')" id="tab-cio">
-          CIO
-        </button>
-        <button class="exec-tab" style="flex:1; padding:10px 4px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent;" onclick="switchExec('cfo')" id="tab-cfo">
-          CFO
-        </button>
+      <!-- CEO -->
+      <div class="org-center"><div class="org-node org-node-ceo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="var(--green)" stroke-width="1.5"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="var(--green)" stroke-width="1.5"/></svg>
+        <div class="org-node-name">CEO (You)</div>
+        <div class="org-node-role">strategy & direction</div>
+      </div></div>
+      <div class="org-line"></div>
+      <!-- COO -->
+      <div class="org-center"><div class="org-node">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--green)" stroke-width="1.5"/><path d="M8 12h8M12 8v8" stroke="var(--green)" stroke-width="1.5"/></svg>
+        <div class="org-node-name">COO · main.py</div>
+        <div class="org-node-role" id="cooStatus">supervisor</div>
+      </div></div>
+      <div class="org-line"></div>
+      <div class="org-hline"></div>
+      <div style="height:6px;"></div>
+      <!-- Agent Row 1 -->
+      <div class="org-grid mb" id="agentRow1"></div>
+      <!-- Agent Row 2 -->
+      <div class="org-grid" id="agentRow2"></div>
+    </div>
+
+    <!-- Heartbeat / Stream Health -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Heartbeat</div>
+        <canvas id="chartHeartbeat" height="50"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;">
+          <span style="color:var(--text-4);font-size:12px;" id="lastTick">Last tick: —</span>
+          <span style="color:var(--green);font-size:12px;">5s interval</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">Stream health</div>
+        <div id="streamHealth"></div>
       </div>
     </div>
 
-    <!-- ═══ EXEC PANELS ═══ -->
-
-    <!-- CEO PANEL -->
-    <div id="panel-ceo" class="exec-panel" style="padding:16px; display:none;">
-      <div style="margin-bottom:16px;">
-        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Executive Officer</div>
-        <div style="font-size:11px; color:var(--text-secondary);">Strategy & overall direction</div>
-      </div>
-
-      <!-- Market Stance -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Market Stance</div>
-        <div style="display:flex; gap:6px; margin-bottom:12px;">
-          <button class="btn btn-success" style="flex:1; font-size:11px;" onclick="setStance('bullish')" id="stance-bullish">Bullish</button>
-          <button class="btn btn-ghost" style="flex:1; font-size:11px;" onclick="setStance('neutral')" id="stance-neutral">Neutral</button>
-          <button class="btn btn-danger" style="flex:1; font-size:11px;" onclick="setStance('bearish')" id="stance-bearish">Bearish</button>
-        </div>
-        <div style="font-size:11px; color:var(--text-secondary);">
-          Current: <span id="currentStance" class="mono" style="color:var(--accent-green);">BULLISH</span>
+    <!-- Agent Uptime / Order Rejections -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Agent uptime (24h)</div>
+        <div id="agentUptime"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;">
+          <span style="color:var(--text-4);font-size:8px;">24h ago</span>
+          <span style="color:var(--text-4);font-size:8px;">now</span>
         </div>
       </div>
-
-      <!-- Strategy Directives -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Strategy Directives</div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
-            <input type="checkbox" id="dir-options" checked style="accent-color:var(--accent-blue);"> Enable options strategies
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
-            <input type="checkbox" id="dir-crypto" checked style="accent-color:var(--accent-blue);"> Enable crypto trading
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
-            <input type="checkbox" id="dir-rebalance" checked style="accent-color:var(--accent-blue);"> Auto-rebalance
-          </label>
-        </div>
-      </div>
-
-      <!-- Quick Actions -->
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CEO Actions</div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <button class="btn btn-primary" style="width:100%; font-size:12px;" onclick="ceoAction('review')">📋 Review Investment Plan</button>
-          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="ceoAction('pause')">⏸ Pause All Trading</button>
-          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="ceoAction('report')">📊 Generate Daily Report</button>
-        </div>
+      <div class="card">
+        <div class="card-label">Order rejections (risk manager)</div>
+        <canvas id="chartRejections" height="100"></canvas>
       </div>
     </div>
 
-    <!-- CRO PANEL -->
-    <div id="panel-cro" class="exec-panel" style="padding:16px; display:none;">
-      <div style="margin-bottom:16px;">
-        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Risk Officer</div>
-        <div style="font-size:11px; color:var(--text-secondary);">Risk oversight & veto authority</div>
+    <!-- System Config / Recent Errors -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-label">System config</div>
+        <div id="sysConfig" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px;"></div>
       </div>
-
-      <!-- Risk Gauges -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">Risk Dashboard</div>
-        <div style="display:flex; flex-direction:column; gap:10px;">
-          <div>
-            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
-              <span>Portfolio Heat</span>
-              <span class="mono" id="portfolioHeat" style="color:var(--accent-amber);">62%</span>
-            </div>
-            <div style="background:var(--bg-primary); height:6px; border-radius:3px; overflow:hidden;">
-              <div id="heatBar" style="width:62%; height:100%; background:linear-gradient(90deg,var(--accent-green),var(--accent-amber)); border-radius:3px; transition:width 0.5s;"></div>
-            </div>
-          </div>
-          <div>
-            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
-              <span>VIX Regime</span>
-              <span class="mono" id="vixRegime" style="color:var(--accent-green);">LOW (18.5)</span>
-            </div>
-            <div style="background:var(--bg-primary); height:6px; border-radius:3px; overflow:hidden;">
-              <div id="vixBar" style="width:37%; height:100%; background:var(--accent-green); border-radius:3px; transition:width 0.5s;"></div>
-            </div>
-          </div>
-          <div>
-            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
-              <span>Concentration Risk</span>
-              <span class="mono" id="concRisk" style="color:var(--accent-green);">8.2%</span>
-            </div>
-            <div style="background:var(--bg-primary); height:6px; border-radius:3px; overflow:hidden;">
-              <div id="concBar" style="width:55%; height:100%; background:var(--accent-green); border-radius:3px; transition:width 0.5s;"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Risk Limits -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Risk Limits (Live Override)</div>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <div>
-            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Position Size ($)</label>
-            <input type="number" id="maxPosSize" value="5000" style="width:100%;" onchange="updateRiskLimit('maxPosSize', this.value)">
-          </div>
-          <div>
-            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Portfolio % per Symbol</label>
-            <input type="number" id="maxPortPct" value="10" min="1" max="100" style="width:100%;" onchange="updateRiskLimit('maxPortPct', this.value)">
-          </div>
-          <div>
-            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Daily Loss ($)</label>
-            <input type="number" id="maxDailyLoss" value="2500" style="width:100%;" onchange="updateRiskLimit('maxDailyLoss', this.value)">
-          </div>
-        </div>
-      </div>
-
-      <!-- CRO Actions -->
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CRO Actions</div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <button class="btn btn-danger" style="width:100%; font-size:12px;" onclick="croAction('veto')">🛑 Veto Next Trade</button>
-          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="croAction('reduceExposure')">📉 Reduce Exposure 50%</button>
-          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="croAction('stressTest')">🧪 Run Stress Test</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- CIO PANEL -->
-    <div id="panel-cio" class="exec-panel" style="padding:16px; display:none;">
-      <div style="margin-bottom:16px;">
-        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Investment Officer</div>
-        <div style="font-size:11px; color:var(--text-secondary);">Investment plan finalization & oversight</div>
-      </div>
-
-      <!-- Current Plan Summary -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px;">Active Investment Plan</div>
-          <span class="status-badge badge-live" style="font-size:9px;">v<span id="planVersion">3</span></span>
-        </div>
-        <div id="planTargets" style="display:flex; flex-direction:column; gap:6px;"></div>
-      </div>
-
-      <!-- Plan Override -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Plan Override</div>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <div>
-            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Add Symbol Target</label>
-            <div style="display:flex; gap:6px;">
-              <input type="text" id="newSymbol" placeholder="AAPL" style="width:80px;">
-              <input type="number" id="newWeight" placeholder="%" style="width:60px;">
-              <button class="btn btn-primary" style="font-size:11px; padding:6px 12px;" onclick="addTarget()">Add</button>
-            </div>
-          </div>
-          <div>
-            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Exclusion List</label>
-            <input type="text" id="exclusions" placeholder="MEME, GME, AMC" style="width:100%;">
-          </div>
-        </div>
-      </div>
-
-      <!-- CIO Actions -->
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CIO Actions</div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <button class="btn btn-success" style="width:100%; font-size:12px;" onclick="cioAction('finalize')">✅ Finalize Current Plan</button>
-          <button class="btn btn-primary" style="width:100%; font-size:12px;" onclick="cioAction('rebalance')">⚖️ Force Rebalance Now</button>
-          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="cioAction('rollback')">↩️ Rollback to Previous Plan</button>
-          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="cioAction('newPlan')">📝 Draft New Plan</button>
-        </div>
-      </div>
-
-      <!-- Plan History -->
-      <div class="card" style="padding:14px; margin-top:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Plan History</div>
-        <div id="planHistory" style="display:flex; flex-direction:column; gap:4px;"></div>
-      </div>
-    </div>
-
-    <!-- CFO PANEL -->
-    <div id="panel-cfo" class="exec-panel" style="padding:16px; display:none;">
-      <div style="margin-bottom:16px;">
-        <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Chief Financial Officer</div>
-        <div style="font-size:11px; color:var(--text-secondary);">Capital allocation & P&L oversight</div>
-      </div>
-
-      <!-- Capital Allocation -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">Capital Allocation</div>
-        <canvas id="allocationChart" height="160"></canvas>
-      </div>
-
-      <!-- P&L Breakdown -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">P&L Breakdown</div>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <div style="display:flex; justify-content:space-between; font-size:12px;">
-            <span>Stocks</span>
-            <span class="mono" style="color:var(--accent-green);">+$842.30</span>
-          </div>
-          <div style="display:flex; justify-content:space-between; font-size:12px;">
-            <span>Options</span>
-            <span class="mono" style="color:var(--accent-red);">-$156.50</span>
-          </div>
-          <div style="display:flex; justify-content:space-between; font-size:12px;">
-            <span>Crypto</span>
-            <span class="mono" style="color:var(--accent-green);">+$560.00</span>
-          </div>
-          <div style="border-top:1px solid var(--border); padding-top:8px; display:flex; justify-content:space-between; font-size:12px; font-weight:600;">
-            <span>Net P&L</span>
-            <span class="mono" style="color:var(--accent-green);" id="netPnl">+$1,245.80</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Capital Controls -->
-      <div class="card" style="padding:14px; margin-bottom:12px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Capital Controls</div>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <div>
-            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Cash Reserve Floor ($)</label>
-            <input type="number" id="cashFloor" value="20000" style="width:100%;" onchange="updateCapital('cashFloor', this.value)">
-          </div>
-          <div>
-            <label style="font-size:11px; color:var(--text-secondary); display:block; margin-bottom:4px;">Max Allocation per Strategy (%)</label>
-            <input type="number" id="maxStratAlloc" value="30" min="5" max="100" style="width:100%;" onchange="updateCapital('maxStratAlloc', this.value)">
-          </div>
-        </div>
-      </div>
-
-      <!-- CFO Actions -->
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">CFO Actions</div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <button class="btn btn-primary" style="width:100%; font-size:12px;" onclick="cfoAction('liquidityReport')">💰 Liquidity Report</button>
-          <button class="btn btn-amber" style="width:100%; font-size:12px;" onclick="cfoAction('cashSweep')">🧹 Cash Sweep to Reserve</button>
-          <button class="btn btn-ghost" style="width:100%; font-size:12px;" onclick="cfoAction('taxLoss')">📑 Tax-Loss Harvest Scan</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- OVERRIDE CONSOLE (always visible at bottom of exec sidebar) -->
-    <div style="padding:16px; border-top:1px solid var(--border); margin-top:auto;">
-      <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Override Console</div>
-      <div id="overrideQueue" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;"></div>
-      <div style="display:flex; gap:6px;">
-        <button class="btn btn-danger" style="flex:1; font-size:11px;" onclick="cancelAllOrders()">Cancel All Orders</button>
-        <button class="btn btn-amber" style="flex:1; font-size:11px;" onclick="liquidateAll()">Liquidate All</button>
+      <div class="card">
+        <div class="card-label">Recent errors</div>
+        <div id="errorLog" class="scroll-y"></div>
       </div>
     </div>
   </div>
+
 </div>
 
-<!-- ═══════════════════ MODAL (reusable) ═══════════════════ -->
-<div id="modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal()">
-  <div class="modal-content slide-in">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <span style="font-size:15px; font-weight:700;" id="modalTitle">Title</span>
-      <button class="btn btn-ghost" style="padding:4px 8px; font-size:16px;" onclick="closeModal()">&times;</button>
-    </div>
-    <div id="modalBody"></div>
-  </div>
-</div>
-
-<!-- ═══════════════════ JAVASCRIPT ═══════════════════ -->
 <script>
-// ── CONFIG ──
-const API_BASE = 'http://localhost:5050';
-const POLL_INTERVAL = 5000;
+// ══════════════════════════════════════════════════════════════════
+//  PARTICLE SYSTEM
+// ══════════════════════════════════════════════════════════════════
+const pCanvas = document.getElementById('particles');
+const pCtx = pCanvas.getContext('2d');
+let particles = [];
 
-// ── STATE ──
-const state = {
-  tradingPaused: false,
-  vetoNext: false,
-  stance: 'bullish',
-  activeExec: 'ceo',
-  planTargets: [
-    { symbol: 'SPY', weight: 30 },
-    { symbol: 'QQQ', weight: 20 },
-    { symbol: 'AAPL', weight: 15 },
-    { symbol: 'MSFT', weight: 10 },
-    { symbol: 'PAXG/USD', weight: 10 },
-    { symbol: 'BTC/USD', weight: 10 },
-    { symbol: 'CASH', weight: 5 },
-  ],
-  planVersion: 3,
-  planHistory: [
-    { version: 3, date: 'Apr 8, 2026 09:32', status: 'active', changedBy: 'CIO' },
-    { version: 2, date: 'Apr 7, 2026 14:15', status: 'superseded', changedBy: 'System' },
-    { version: 1, date: 'Apr 7, 2026 08:30', status: 'superseded', changedBy: 'CIO' },
-  ],
-  overrides: [],
-  agents: [
-    { name: 'ref_library', label: 'Ref Library', status: 'running', icon: '📚' },
-    { name: 'account_agent', label: 'Account', status: 'running', icon: '👤' },
-    { name: 'signal_generator', label: 'Signals', status: 'running', icon: '📡' },
-    { name: 'plan_manager', label: 'Plan Mgr', status: 'running', icon: '📋' },
-    { name: 'order_execution', label: 'Execution', status: 'running', icon: '⚡' },
-    { name: 'risk_manager', label: 'Risk Mgr', status: 'running', icon: '🛡️' },
-    { name: 'boss', label: 'Boss', status: 'running', icon: '👔' },
-    { name: 'diagnostics', label: 'Diagnostics', status: 'running', icon: '🔧' },
-  ],
-  signals: [],
-  logs: [],
-};
+function resizeParticles() {
+  pCanvas.width = window.innerWidth * 2;
+  pCanvas.height = window.innerHeight * 2;
+  pCtx.scale(2, 2);
+}
+function initParticles() {
+  resizeParticles();
+  particles = Array.from({length: 60}, () => ({
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: (Math.random() - 0.5) * 0.3,
+    r: Math.random() * 1.5 + 0.5
+  }));
+}
+function drawParticles() {
+  pCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  const w = window.innerWidth, h = window.innerHeight;
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0 || p.x > w) p.vx *= -1;
+    if (p.y < 0 || p.y > h) p.vy *= -1;
+    pCtx.beginPath();
+    pCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    pCtx.fillStyle = 'rgba(0,255,136,0.5)';
+    pCtx.fill();
+  });
+  particles.forEach((a, i) => {
+    particles.slice(i + 1).forEach(b => {
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d < 120) {
+        pCtx.beginPath();
+        pCtx.moveTo(a.x, a.y);
+        pCtx.lineTo(b.x, b.y);
+        pCtx.strokeStyle = `rgba(0,255,136,${0.15 * (1 - d / 120)})`;
+        pCtx.lineWidth = 0.5;
+        pCtx.stroke();
+      }
+    });
+  });
+  requestAnimationFrame(drawParticles);
+}
+initParticles();
+drawParticles();
+window.addEventListener('resize', () => { pCtx.setTransform(1,0,0,1,0,0); resizeParticles(); });
 
-// ── CLOCK ──
+// ══════════════════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ══════════════════════════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    // Draw charts for the newly visible tab (after layout settles)
+    _chartsDrawn[tab.dataset.tab] = false;
+    requestAnimationFrame(() => {
+      if (state.equity) {
+        renderCharts();
+        render();
+      }
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  CLOCK
+// ══════════════════════════════════════════════════════════════════
 function updateClock() {
   const now = new Date();
-  document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', { hour12: false });
-  // Check market hours (8:30 AM - 3:00 PM CST)
-  const cst = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-  const h = cst.getHours(), m = cst.getMinutes();
-  const day = cst.getDay();
-  const isOpen = day >= 1 && day <= 5 && ((h > 8 || (h === 8 && m >= 30)) && h < 15);
-  const el = document.getElementById('marketStatus');
-  if (isOpen) {
-    el.className = 'status-badge badge-live';
-    el.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>OPEN';
-  } else {
-    el.className = 'status-badge badge-offline';
-    el.innerHTML = 'CLOSED';
-  }
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-US', { hour12: false });
 }
 setInterval(updateClock, 1000);
 updateClock();
 
-// ── PORTFOLIO CHART ──
-let portfolioChart;
-function initPortfolioChart() {
-  const ctx = document.getElementById('portfolioChart').getContext('2d');
-  const labels = [];
-  const data = [];
-  let val = 98500;
-  for (let i = 0; i < 50; i++) {
-    labels.push('');
-    val += (Math.random() - 0.45) * 500;
-    data.push(Math.round(val * 100) / 100);
-  }
-  portfolioChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data,
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59,130,246,0.08)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 0,
-        borderWidth: 2,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { display: false },
-        y: {
-          display: true,
-          grid: { color: 'rgba(42,53,72,0.5)' },
-          ticks: { color: '#94a3b8', font: { size: 10, family: 'JetBrains Mono' }, callback: v => '$' + (v/1000).toFixed(1) + 'k' }
-        }
-      },
-      interaction: { intersect: false, mode: 'index' },
-    }
-  });
-}
+// ══════════════════════════════════════════════════════════════════
+//  DATA FETCHING
+// ══════════════════════════════════════════════════════════════════
+const API = '';  // same origin — dashboard.py serves both
+let state = {};
 
-// ── ALLOCATION CHART (CFO) ──
-let allocationChart;
-function initAllocationChart() {
-  const ctx = document.getElementById('allocationChart').getContext('2d');
-  allocationChart = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: ['Stocks', 'Options', 'Crypto', 'Cash'],
-      datasets: [{
-        data: [55, 10, 20, 15],
-        backgroundColor: ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981'],
-        borderColor: '#1a2332',
-        borderWidth: 3,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 12 }
-        }
-      },
-      cutout: '65%',
-    }
-  });
-}
-
-// ── AGENT STATUS GRID ──
-function renderAgents() {
-  const grid = document.getElementById('agentGrid');
-  grid.innerHTML = state.agents.map(a => {
-    const color = a.status === 'running' ? 'var(--accent-green)' :
-                  a.status === 'warning' ? 'var(--accent-amber)' : 'var(--accent-red)';
-    const badgeClass = a.status === 'running' ? 'badge-live' :
-                       a.status === 'warning' ? 'badge-paused' : 'badge-error';
-    return `
-      <div class="card" style="padding:10px; display:flex; align-items:center; gap:8px; cursor:pointer;" onclick="showAgentDetail('${a.name}')">
-        <span style="font-size:16px;">${a.icon}</span>
-        <div style="flex:1; min-width:0;">
-          <div style="font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${a.label}</div>
-          <div class="status-badge ${badgeClass}" style="font-size:8px; padding:2px 6px; margin-top:2px;">${a.status.toUpperCase()}</div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-// ── POSITIONS TABLE ──
-function renderPositions(positions) {
-  const body = document.getElementById('positionsBody');
-  if (!positions || positions.length === 0) {
-    body.innerHTML = '<tr><td colspan="4" style="padding:16px; text-align:center; color:var(--text-secondary); font-size:12px;">No open positions</td></tr>';
-    document.getElementById('posCount').textContent = '0 positions';
-    return;
-  }
-  document.getElementById('posCount').textContent = positions.length + ' positions';
-  body.innerHTML = positions.map(p => {
-    const pnlColor = (p.unrealised || 0) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
-    const pnlSign = (p.unrealised || 0) >= 0 ? '+' : '';
-    return `
-      <tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:6px 8px;"><span class="mono" style="font-weight:600;">${p.symbol}</span></td>
-        <td style="padding:6px 8px;" class="mono">${p.qty}</td>
-        <td style="padding:6px 8px;" class="mono">$${Number(p.market_val || 0).toLocaleString()}</td>
-        <td style="padding:6px 8px;" class="mono"><span style="color:${pnlColor};">${pnlSign}$${Number(p.unrealised || 0).toFixed(2)}</span></td>
-      </tr>
-    `;
-  }).join('');
-}
-
-// ── SIGNALS FEED ──
-function addSignal(signal) {
-  state.signals.unshift(signal);
-  if (state.signals.length > 50) state.signals.pop();
-  renderSignals();
-}
-function renderSignals() {
-  const feed = document.getElementById('signalsFeed');
-  if (state.signals.length === 0) {
-    feed.innerHTML = '<div style="text-align:center; color:var(--text-secondary); font-size:12px; padding:20px;">Waiting for signals...</div>';
-    return;
-  }
-  feed.innerHTML = state.signals.map(s => {
-    const sideColor = s.side === 'buy' ? 'var(--accent-green)' : 'var(--accent-red)';
-    const conf = Math.round((s.confidence || 0) * 100);
-    return `
-      <div style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid rgba(42,53,72,0.4); font-size:11px;">
-        <span style="color:${sideColor}; font-weight:700; width:28px;">${(s.side || '').toUpperCase()}</span>
-        <span class="mono" style="font-weight:600; width:70px;">${s.symbol}</span>
-        <span style="flex:1; color:var(--text-secondary);">${s.strategy || ''}</span>
-        <span class="mono" style="color:var(--accent-cyan);">${conf}%</span>
-        ${state.vetoNext ? '<span style="color:var(--accent-red); font-size:9px; font-weight:700;">VETOED</span>' : ''}
-      </div>
-    `;
-  }).join('');
-}
-
-// ── TRADES TABLE ──
-function renderTrades(trades) {
-  const body = document.getElementById('tradesBody');
-  if (!trades || trades.length === 0) {
-    body.innerHTML = '<tr><td colspan="7" style="padding:16px; text-align:center; color:var(--text-secondary); font-size:12px;">No trades yet</td></tr>';
-    return;
-  }
-  body.innerHTML = trades.slice(0, 20).map(t => {
-    const sideColor = t.side === 'buy' ? 'var(--accent-green)' : 'var(--accent-red)';
-    return `
-      <tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:8px;" class="mono">${new Date(t.ts || t.timestamp || t.time).toLocaleTimeString('en-US', { hour12: false })}</td>
-        <td style="padding:8px;" class="mono" style="font-weight:600;">${t.symbol}</td>
-        <td style="padding:8px;"><span style="color:${sideColor}; font-weight:600;">${(t.side || '').toUpperCase()}</span></td>
-        <td style="padding:8px;" class="mono">${t.qty}</td>
-        <td style="padding:8px;" class="mono">$${Number(t.price || 0).toFixed(2)}</td>
-        <td style="padding:8px;" class="mono">$${Number(t.notional || 0).toLocaleString()}</td>
-        <td style="padding:8px;"><span style="font-size:10px; color:var(--text-secondary);">${t.strategy_tag || ''}</span></td>
-      </tr>
-    `;
-  }).join('');
-}
-
-// ── ACTIVITY LOG ──
-function addLog(level, message, source = 'system') {
-  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
-  state.logs.unshift({ time: now, level, message, source });
-  if (state.logs.length > 100) state.logs.pop();
-  renderLogs();
-}
-function renderLogs(filter = 'all') {
-  const el = document.getElementById('activityLog');
-  const logs = filter === 'all' ? state.logs : state.logs.filter(l => l.source === filter || l.level === filter);
-  if (logs.length === 0) {
-    el.innerHTML = '<div style="text-align:center; color:var(--text-secondary); font-size:12px; padding:20px;">No activity</div>';
-    return;
-  }
-  el.innerHTML = logs.slice(0, 50).map(l => {
-    const color = l.level === 'error' ? 'var(--accent-red)' :
-                  l.level === 'warn' ? 'var(--accent-amber)' :
-                  l.level === 'exec' ? 'var(--accent-purple)' : 'var(--text-secondary)';
-    return `
-      <div style="display:flex; gap:8px; padding:4px 0; font-size:11px; border-bottom:1px solid rgba(42,53,72,0.3);">
-        <span class="mono" style="color:var(--text-secondary); white-space:nowrap;">${l.time}</span>
-        <span style="color:${color}; font-weight:600; width:40px; text-transform:uppercase; font-size:10px;">${l.level}</span>
-        <span style="flex:1;">${l.message}</span>
-      </div>
-    `;
-  }).join('');
-}
-function filterLog(f) { renderLogs(f); }
-
-// ── PLAN TARGETS (CIO) ──
-function renderPlanTargets() {
-  const el = document.getElementById('planTargets');
-  el.innerHTML = state.planTargets.map(t => `
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:12px;">
-      <span class="mono" style="font-weight:600;">${t.symbol}</span>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <div style="width:80px; background:var(--bg-primary); height:4px; border-radius:2px; overflow:hidden;">
-          <div style="width:${t.weight}%; height:100%; background:var(--accent-blue); border-radius:2px;"></div>
-        </div>
-        <span class="mono" style="width:32px; text-align:right;">${t.weight}%</span>
-        <button style="background:none; border:none; color:var(--accent-red); cursor:pointer; font-size:14px; padding:0 4px;" onclick="removeTarget('${t.symbol}')">&times;</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-function renderPlanHistory() {
-  const el = document.getElementById('planHistory');
-  el.innerHTML = state.planHistory.map(h => {
-    const color = h.status === 'active' ? 'var(--accent-green)' : 'var(--text-secondary)';
-    return `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:11px;">
-        <span class="mono">v${h.version}</span>
-        <span style="color:var(--text-secondary);">${h.date}</span>
-        <span style="color:${color}; font-size:10px; font-weight:600;">${h.status.toUpperCase()}</span>
-      </div>
-    `;
-  }).join('');
-}
-
-function addTarget() {
-  const sym = document.getElementById('newSymbol').value.toUpperCase().trim();
-  const wt = parseInt(document.getElementById('newWeight').value);
-  if (!sym || !wt || wt <= 0) return;
-  const existing = state.planTargets.find(t => t.symbol === sym);
-  if (existing) { existing.weight = wt; }
-  else { state.planTargets.push({ symbol: sym, weight: wt }); }
-  document.getElementById('newSymbol').value = '';
-  document.getElementById('newWeight').value = '';
-  renderPlanTargets();
-  addLog('exec', `CIO added target: ${sym} @ ${wt}%`, 'exec');
-}
-
-function removeTarget(sym) {
-  state.planTargets = state.planTargets.filter(t => t.symbol !== sym);
-  renderPlanTargets();
-  addLog('exec', `CIO removed target: ${sym}`, 'exec');
-}
-
-// ── OVERRIDE QUEUE ──
-function renderOverrides() {
-  const el = document.getElementById('overrideQueue');
-  if (state.overrides.length === 0) {
-    el.innerHTML = '<div style="font-size:11px; color:var(--text-secondary); text-align:center; padding:8px;">No pending overrides</div>';
-    return;
-  }
-  el.innerHTML = state.overrides.map((o, i) => `
-    <div class="card" style="padding:8px; display:flex; justify-content:space-between; align-items:center;">
-      <div>
-        <div style="font-size:11px; font-weight:600;">${o.action}</div>
-        <div style="font-size:10px; color:var(--text-secondary);">${o.by} · ${o.time}</div>
-      </div>
-      <div style="display:flex; gap:4px;">
-        <button class="btn btn-success" style="padding:4px 8px; font-size:10px;" onclick="executeOverride(${i})">Execute</button>
-        <button class="btn btn-ghost" style="padding:4px 8px; font-size:10px;" onclick="dismissOverride(${i})">Dismiss</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-function queueOverride(action, by) {
-  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
-  state.overrides.push({ action, by, time: now });
-  renderOverrides();
-}
-
-function executeOverride(i) {
-  const o = state.overrides.splice(i, 1)[0];
-  addLog('exec', `Override executed: ${o.action} (by ${o.by})`, 'exec');
-  renderOverrides();
-  showToast(`Override executed: ${o.action}`, 'success');
-}
-
-function dismissOverride(i) {
-  const o = state.overrides.splice(i, 1)[0];
-  addLog('info', `Override dismissed: ${o.action}`, 'exec');
-  renderOverrides();
-}
-
-// ── EXEC TAB SWITCHING ──
-function switchExec(role) {
-  state.activeExec = role;
-  document.querySelectorAll('.exec-panel').forEach(p => p.style.display = 'none');
-  document.querySelectorAll('.exec-tab').forEach(t => {
-    t.style.color = 'var(--text-secondary)';
-    t.style.borderBottomColor = 'transparent';
-  });
-  document.getElementById(`panel-${role}`).style.display = 'block';
-  const tab = document.getElementById(`tab-${role}`);
-  tab.style.color = 'var(--text-primary)';
-  tab.style.borderBottomColor = 'var(--accent-blue)';
-  if (role === 'cfo' && allocationChart) allocationChart.update();
-}
-
-// ── EXEC ACTIONS ──
-function setStance(s) {
-  state.stance = s;
-  const colors = { bullish: 'var(--accent-green)', neutral: 'var(--accent-amber)', bearish: 'var(--accent-red)' };
-  document.getElementById('currentStance').textContent = s.toUpperCase();
-  document.getElementById('currentStance').style.color = colors[s];
-  addLog('exec', `CEO set market stance to ${s.toUpperCase()}`, 'exec');
-  showToast(`Stance updated: ${s.toUpperCase()}`, 'success');
-  // Push to bot
-  fetch(`${API_BASE}/api/exec/stance`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ stance: s }) }).catch(() => {});
-}
-
-function ceoAction(action) {
-  if (action === 'pause') {
-    state.tradingPaused = !state.tradingPaused;
-    const statusEl = document.getElementById('systemStatus');
-    if (state.tradingPaused) {
-      fetch(`${API_BASE}/api/exec/pause`, { method: 'POST' }).catch(() => {});
-      statusEl.className = 'status-badge badge-paused';
-      statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-amber);"></span>PAUSED';
-      addLog('exec', 'CEO paused all trading', 'exec');
-      showToast('Trading PAUSED by CEO', 'warning');
-    } else {
-      fetch(`${API_BASE}/api/exec/resume`, { method: 'POST' }).catch(() => {});
-      statusEl.className = 'status-badge badge-live';
-      statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>LIVE';
-      addLog('exec', 'CEO resumed trading', 'exec');
-      showToast('Trading RESUMED', 'success');
-    }
-  } else if (action === 'review') {
-    switchExec('cio');
-  } else if (action === 'report') {
-    showModal('Daily Report', generateDailyReport());
-  }
-}
-
-function croAction(action) {
-  if (action === 'veto') {
-    state.vetoNext = !state.vetoNext;
-    addLog('exec', state.vetoNext ? 'CRO armed veto on next trade' : 'CRO disarmed veto', 'exec');
-    showToast(state.vetoNext ? 'Veto ARMED — next trade will be blocked' : 'Veto disarmed', state.vetoNext ? 'warning' : 'success');
-  } else if (action === 'reduceExposure') {
-    queueOverride('Reduce exposure by 50%', 'CRO');
-    addLog('exec', 'CRO queued 50% exposure reduction', 'exec');
-  } else if (action === 'stressTest') {
-    showModal('Stress Test Results', generateStressTest());
-  }
-}
-
-function cioAction(action) {
-  if (action === 'finalize') {
-    // Push plan to bot API
-    const planData = { targets: {}, stance: state.stance, exclusions: document.getElementById('exclusions').value.split(',').map(s => s.trim()).filter(Boolean) };
-    state.planTargets.forEach(t => { planData.targets[t.symbol] = t.weight; });
-    fetch(`${API_BASE}/api/exec/plan`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(planData) }).catch(() => {});
-    state.planVersion++;
-    document.getElementById('planVersion').textContent = state.planVersion;
-    state.planHistory.unshift({
-      version: state.planVersion,
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-      status: 'active',
-      changedBy: 'CIO'
-    });
-    if (state.planHistory.length > 1) state.planHistory[1].status = 'superseded';
-    renderPlanHistory();
-    addLog('exec', `CIO finalized investment plan v${state.planVersion}`, 'exec');
-    showToast(`Plan v${state.planVersion} finalized and active`, 'success');
-  } else if (action === 'rebalance') {
-    fetch(`${API_BASE}/api/exec/force-rebalance`, { method: 'POST' }).catch(() => {});
-    queueOverride('Force immediate rebalance', 'CIO');
-    addLog('exec', 'CIO queued force rebalance', 'exec');
-  } else if (action === 'rollback') {
-    fetch(`${API_BASE}/api/exec/plan-rollback`, { method: 'POST' }).catch(() => {});
-    if (state.planHistory.length >= 2) {
-      addLog('exec', `CIO rolled back to plan v${state.planVersion - 1}`, 'exec');
-      showToast('Rolled back to previous plan', 'warning');
-    }
-  } else if (action === 'newPlan') {
-    showModal('Draft New Plan', `
-      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Define new target allocations for the next plan version.</div>
-      <textarea style="width:100%; height:120px; margin-bottom:12px;" placeholder="Enter JSON targets, e.g.:\n{\n  &quot;SPY&quot;: 25,\n  &quot;QQQ&quot;: 20,\n  &quot;AAPL&quot;: 15\n}"></textarea>
-      <button class="btn btn-primary" style="width:100%;" onclick="closeModal(); addLog('exec','CIO drafted new plan','exec'); showToast('Plan draft saved','success');">Save Draft</button>
-    `);
-  }
-}
-
-function cfoAction(action) {
-  if (action === 'liquidityReport') {
-    showModal('Liquidity Report', generateLiquidityReport());
-  } else if (action === 'cashSweep') {
-    queueOverride('Sweep excess cash to reserve', 'CFO');
-    addLog('exec', 'CFO queued cash sweep to reserve', 'exec');
-  } else if (action === 'taxLoss') {
-    showModal('Tax-Loss Harvest Scan', `
-      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:16px;">Scanning positions for tax-loss harvesting opportunities...</div>
-      <div class="card" style="padding:12px; margin-bottom:8px;">
-        <div style="display:flex; justify-content:space-between; font-size:12px;">
-          <span class="mono" style="font-weight:600;">No losing positions</span>
-          <span style="color:var(--accent-green);">All positions green</span>
-        </div>
-      </div>
-      <div style="font-size:11px; color:var(--text-secondary);">No tax-loss harvest candidates at this time. Will re-scan on next refresh.</div>
-    `);
-  }
-}
-
-function updateRiskLimit(key, value) {
-  const payload = {};
-  if (key === 'maxPosSize') payload.max_position_size = parseFloat(value);
-  if (key === 'maxPortPct') payload.max_portfolio_pct = parseFloat(value);
-  fetch(`${API_BASE}/api/exec/risk-limits`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(() => {});
-  addLog('exec', `CRO updated ${key} to ${value}`, 'exec');
-  showToast(`Risk limit updated: ${key}`, 'success');
-}
-
-function updateCapital(key, value) {
-  addLog('exec', `CFO updated ${key} to ${value}`, 'exec');
-  showToast(`Capital control updated: ${key}`, 'success');
-}
-
-// ── EMERGENCY ACTIONS ──
-function emergencyStop() {
-  showModal('Emergency Stop', `
-    <div style="text-align:center;">
-      <div style="font-size:48px; margin-bottom:12px;">🚨</div>
-      <div style="font-size:14px; font-weight:600; margin-bottom:8px; color:var(--accent-red);">EMERGENCY STOP</div>
-      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:20px;">This will cancel all open orders and pause all trading immediately.</div>
-      <div style="display:flex; gap:8px; justify-content:center;">
-        <button class="btn btn-danger" onclick="executeEmergencyStop()">Confirm Stop</button>
-        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      </div>
-    </div>
-  `);
-}
-
-function executeEmergencyStop() {
-  state.tradingPaused = true;
-  const statusEl = document.getElementById('systemStatus');
-  statusEl.className = 'status-badge badge-error';
-  statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-red);"></span>STOPPED';
-  addLog('error', '🚨 EMERGENCY STOP executed — all trading halted', 'exec');
-  closeModal();
-  showToast('EMERGENCY STOP — all trading halted', 'danger');
-  // Try to call API
-  fetch(`${API_BASE}/api/exec/emergency-stop`, { method: 'POST' }).catch(() => {});
-}
-
-function cancelAllOrders() {
-  addLog('exec', 'Cancel all open orders requested', 'exec');
-  showToast('Cancel all orders sent', 'warning');
-  fetch(`${API_BASE}/api/exec/cancel-all`, { method: 'POST' }).catch(() => {});
-}
-
-function liquidateAll() {
-  showModal('Liquidate All Positions', `
-    <div style="text-align:center;">
-      <div style="font-size:36px; margin-bottom:12px;">⚠️</div>
-      <div style="font-size:13px; color:var(--text-secondary); margin-bottom:20px;">This will market-sell all open positions. This action cannot be undone.</div>
-      <div style="display:flex; gap:8px; justify-content:center;">
-        <button class="btn btn-danger" onclick="confirmLiquidate()">Confirm Liquidate All</button>
-        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      </div>
-    </div>
-  `);
-}
-
-function confirmLiquidate() {
-  addLog('exec', '⚠️ LIQUIDATE ALL executed', 'exec');
-  closeModal();
-  showToast('Liquidating all positions...', 'danger');
-  fetch(`${API_BASE}/api/exec/cancel-all`, { method: 'POST' }).catch(() => {});
-}
-
-// ── MODAL ──
-function showModal(title, bodyHtml) {
-  document.getElementById('modalTitle').textContent = title;
-  document.getElementById('modalBody').innerHTML = bodyHtml;
-  document.getElementById('modal').style.display = 'flex';
-}
-function closeModal() { document.getElementById('modal').style.display = 'none'; }
-
-// ── TOAST ──
-function showToast(message, type = 'info') {
-  const toast = document.createElement('div');
-  const colors = { success: 'var(--accent-green)', warning: 'var(--accent-amber)', danger: 'var(--accent-red)', info: 'var(--accent-blue)' };
-  toast.style.cssText = `
-    position:fixed; bottom:20px; right:380px; z-index:200;
-    background:var(--bg-card); border:1px solid ${colors[type]}; border-radius:10px;
-    padding:12px 20px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,0.3);
-    animation: fadeIn 0.3s ease-out;
-  `;
-  toast.innerHTML = `<span style="color:${colors[type]}; font-weight:600;">${message}</span>`;
-  document.body.appendChild(toast);
-  setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3000);
-}
-
-// ── REPORT GENERATORS ──
-function generateDailyReport() {
-  return `
-    <div style="font-size:12px;">
-      <div style="margin-bottom:16px;">
-        <div style="font-weight:600; margin-bottom:6px;">Performance Summary</div>
-        <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Portfolio Value</span><span class="mono">$101,245.80</span></div>
-        <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Day P&L</span><span class="mono" style="color:var(--accent-green);">+$1,245.80</span></div>
-        <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Trades Executed</span><span class="mono">12</span></div>
-        <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Win Rate</span><span class="mono">67%</span></div>
-      </div>
-      <div style="margin-bottom:16px;">
-        <div style="font-weight:600; margin-bottom:6px;">Agent Health</div>
-        <div style="color:var(--accent-green);">All 8 agents running normally</div>
-      </div>
-      <div>
-        <div style="font-weight:600; margin-bottom:6px;">Risk Status</div>
-        <div>Portfolio heat: 62% · VIX regime: LOW · No breaches detected</div>
-      </div>
-    </div>
-  `;
-}
-
-function generateStressTest() {
-  return `
-    <div style="font-size:12px;">
-      <div style="font-weight:600; margin-bottom:12px;">Stress Test Scenarios</div>
-      <div class="card" style="padding:10px; margin-bottom:8px;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="font-weight:600;">Market crash (-10%)</span><span class="mono" style="color:var(--accent-red);">-$8,420</span></div>
-        <div style="font-size:11px; color:var(--text-secondary);">Portfolio would drop to ~$92,826</div>
-      </div>
-      <div class="card" style="padding:10px; margin-bottom:8px;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="font-weight:600;">Sector rotation (-5% tech)</span><span class="mono" style="color:var(--accent-amber);">-$2,180</span></div>
-        <div style="font-size:11px; color:var(--text-secondary);">Tech-heavy allocation exposes concentration risk</div>
-      </div>
-      <div class="card" style="padding:10px;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="font-weight:600;">VIX spike to 40</span><span class="mono" style="color:var(--accent-red);">-$5,100</span></div>
-        <div style="font-size:11px; color:var(--text-secondary);">Options positions would face IV expansion</div>
-      </div>
-    </div>
-  `;
-}
-
-function generateLiquidityReport() {
-  return `
-    <div style="font-size:12px;">
-      <div style="font-weight:600; margin-bottom:12px;">Liquidity Analysis</div>
-      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Total Cash</span><span class="mono">$85,200.00</span></div>
-      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Buying Power</span><span class="mono">$75,420.00</span></div>
-      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Cash Reserve Floor</span><span class="mono">$20,000.00</span></div>
-      <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span>Available Above Floor</span><span class="mono" style="color:var(--accent-green);">$65,200.00</span></div>
-      <div style="display:flex; justify-content:space-between; padding:4px 0;"><span>Margin Used</span><span class="mono">$0.00</span></div>
-      <div style="margin-top:12px; padding:10px; background:rgba(16,185,129,0.1); border-radius:8px; color:var(--accent-green); font-size:11px;">
-        ✅ Liquidity is healthy. No margin usage. Cash well above reserve floor.
-      </div>
-    </div>
-  `;
-}
-
-// ── AGENT DETAIL ──
-function showAgentDetail(name) {
-  const agent = state.agents.find(a => a.name === name);
-  if (!agent) return;
-  showModal(`${agent.icon} ${agent.label} Agent`, `
-    <div style="font-size:12px;">
-      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border);"><span>Status</span><span class="status-badge badge-live">${agent.status.toUpperCase()}</span></div>
-      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border);"><span>Module</span><span class="mono">${agent.name}.py</span></div>
-      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border);"><span>Restarts</span><span class="mono">0</span></div>
-      <div style="display:flex; justify-content:space-between; padding:6px 0;"><span>Last Error</span><span style="color:var(--text-secondary);">None</span></div>
-      <div style="margin-top:12px; display:flex; gap:6px;">
-        <button class="btn btn-amber" style="flex:1; font-size:11px;" onclick="closeModal(); addLog('exec','Restarted ${agent.label}','exec'); showToast('${agent.label} restarted','success');">Restart</button>
-        <button class="btn btn-danger" style="flex:1; font-size:11px;" onclick="closeModal(); addLog('exec','Stopped ${agent.label}','exec'); showToast('${agent.label} stopped','warning');">Stop</button>
-      </div>
-    </div>
-  `);
-}
-
-// ── CHART RANGE ──
-function setChartRange(range) {
-  // Update active state visually
-  document.querySelectorAll('[onclick^="setChartRange"]').forEach(b => b.classList.remove('tab-active'));
-  event.target.classList.add('tab-active');
-  // Regenerate data
-  const points = range === '1D' ? 24 : range === '1W' ? 50 : 150;
-  const labels = []; const data = [];
-  let val = 98500;
-  for (let i = 0; i < points; i++) {
-    labels.push('');
-    val += (Math.random() - 0.45) * (range === '1M' ? 300 : 500);
-    data.push(Math.round(val * 100) / 100);
-  }
-  portfolioChart.data.labels = labels;
-  portfolioChart.data.datasets[0].data = data;
-  portfolioChart.update();
-}
-
-function clearSignals() { state.signals = []; renderSignals(); }
-
-// ── DATA POLLING ──
-let apiConnected = false;
-
-async function pollData() {
+async function fetchData() {
   try {
-    // Single endpoint — matches your dashboard.py /api/data
-    const res = await fetch(`${API_BASE}/api/data`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const d = await res.json();
-
-    if (!apiConnected) {
-      apiConnected = true;
-      addLog('info', '✅ Connected to trading bot API at ' + API_BASE);
+    const raw = await fetch(API + '/api/data').then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!raw) return;
+    // Map /api/data response to our internal state shape
+    const acct = raw.account || {};
+    state = {
+      // Status / account info
+      equity: parseFloat(acct.equity || acct.portfolio_value || 0),
+      portfolio_value: parseFloat(acct.portfolio_value || acct.equity || 0),
+      last_equity: parseFloat(acct.last_equity || acct.equity || 0),
+      buying_power: parseFloat(acct.buying_power || 0),
+      cash: parseFloat(acct.cash || 0),
+      market_open: raw.market_open || false,
+      trading_paused: raw.trading_paused || false,
+      // Positions from DB — field names: symbol, qty, avg_cost, market_val, unrealised, asset_class
+      positions: (raw.positions || []).map(p => ({
+        symbol: p.symbol,
+        qty: parseFloat(p.qty || 0),
+        avg_cost: parseFloat(p.avg_cost || 0),
+        market_value: parseFloat(p.market_val || 0),
+        unrealized_pl: parseFloat(p.unrealised || 0),
+        asset_class: p.asset_class || 'unknown',
+      })),
+      // Trades — field names: ts, symbol, side, qty, price, notional, strategy_tag
+      trades: (raw.recent_trades || []).map(t => ({
+        time: t.ts,
+        symbol: t.symbol,
+        side: t.side,
+        qty: parseFloat(t.qty || 0),
+        price: parseFloat(t.price || 0),
+        notional: parseFloat(t.notional || 0),
+        strategy_tag: t.strategy_tag || '',
+      })),
+      total_trades: raw.total_trades || 0,
+      // Signals — field names: ts, symbol, strategy, side, confidence, sentiment
+      signals: (raw.signals || []).map(s => ({
+        time: s.ts,
+        symbol: s.symbol,
+        strategy: s.strategy,
+        side: s.side,
+        confidence: parseFloat(s.confidence || 0),
+        sentiment: parseFloat(s.sentiment || 0),
+      })),
+      // Plan
+      plan: raw.plan || {},
+      plan_summary: raw.plan_summary || '',
+      plan_history: raw.plan_history || [],
+      // Outcomes (closed trades with P&L)
+      outcomes: (raw.outcomes || []).map(o => ({
+        symbol: o.symbol,
+        strategy: o.strategy,
+        side: o.side,
+        pnl: parseFloat(o.pnl || 0),
+        pnl_pct: parseFloat(o.pnl_pct || 0),
+        status: o.status,
+      })),
+      // Strategy scores
+      strategy_scores: raw.strategy_scores || [],
+      // Agents
+      agent_status: raw.agent_status || [],
+      // Allocation & concentration (pre-computed by dashboard.py)
+      allocation: raw.allocation || {},
+      concentration: raw.concentration || { max_pct: 0, symbol: '' },
+      // Heat
+      heat_status: raw.heat_status || {},
+      // Errors from agent_logs
+      errors: (raw.errors || []).map(e => ({
+        msg: `${e.agent}: ${(e.message || '').substring(0, 60)}`,
+        detail: e.message || '',
+        time: e.ts ? new Date(e.ts * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '—',
+        level: e.level,
+      })),
+    };
+    render();
+    // Draw charts only if not yet drawn for this tab
+    const activeTab = document.querySelector('.tab.active')?.dataset.tab || 'dashboard';
+    if (!_chartsDrawn[activeTab]) {
+      requestAnimationFrame(() => renderCharts());
     }
-
-    // ── Account (from enriched shared state) ──
-    if (d.account && d.account.portfolio_value) {
-      const a = d.account;
-      document.getElementById('portfolioValue').textContent = '$' + Number(a.portfolio_value).toLocaleString(undefined, { minimumFractionDigits: 2 });
-      if (a.buying_power) document.getElementById('buyingPower').textContent = '$' + Number(a.buying_power).toLocaleString(undefined, { minimumFractionDigits: 2 });
-      if (a.cash) document.getElementById('cashValue').textContent = '$' + Number(a.cash).toLocaleString(undefined, { minimumFractionDigits: 2 });
-      if (a.portfolio_value && a.last_equity) {
-        const pnl = Number(a.portfolio_value) - Number(a.last_equity);
-        const pnlPct = (pnl / Number(a.last_equity) * 100).toFixed(2);
-        const isPos = pnl >= 0;
-        document.getElementById('pnlArrow').textContent = isPos ? '▲' : '▼';
-        document.getElementById('pnlValue').textContent = `${isPos ? '+' : ''}$${pnl.toFixed(2)} (${isPos ? '+' : ''}${pnlPct}%)`;
-        document.getElementById('pnlValue').style.color = isPos ? 'var(--accent-green)' : 'var(--accent-red)';
-      }
-    }
-
-    // ── Positions ──
-    if (Array.isArray(d.positions)) {
-      renderPositions(d.positions);
-    }
-
-    // ── Trades ──
-    if (Array.isArray(d.recent_trades)) {
-      renderTrades(d.recent_trades);
-      document.getElementById('tradeCount').textContent = d.total_trades || d.recent_trades.length;
-      // Win rate from outcomes
-      if (Array.isArray(d.outcomes) && d.outcomes.length > 0) {
-        const wins = d.outcomes.filter(o => (o.pnl || 0) > 0).length;
-        document.getElementById('winRate').textContent = Math.round(wins / d.outcomes.length * 100) + '%';
-      }
-    }
-
-    // ── Signals ──
-    if (Array.isArray(d.signals) && d.signals.length > 0) {
-      d.signals.forEach(s => {
-        if (!state.signals.find(x => x.symbol === s.symbol && x.strategy === s.strategy && x.ts === s.ts)) {
-          addSignal({ ...s, time: s.ts, confidence: s.confidence || 0 });
-        }
-      });
-      document.getElementById('signalCount').textContent = state.signals.length;
-      const avg = state.signals.reduce((sum, s) => sum + (s.confidence || 0), 0) / state.signals.length;
-      document.getElementById('avgConfidence').textContent = Math.round(avg * 100) + '%';
-    }
-
-    // ── Agent status (from enriched shared state) ──
-    if (Array.isArray(d.agent_status) && d.agent_status.length > 0) {
-      d.agent_status.forEach(a => {
-        const existing = state.agents.find(x => x.name === a.name);
-        if (existing) {
-          existing.status = a.status;
-          existing.restarts = a.restarts || 0;
-        }
-      });
-      renderAgents();
-    }
-
-    // ── Errors (render to activity log) ──
-    if (Array.isArray(d.errors) && d.errors.length > 0) {
-      d.errors.forEach(e => {
-        if (!state.logs.find(l => l.message === e.message && l.time === e.ts)) {
-          state.logs.push({ time: e.ts, level: e.level === 'ERROR' ? 'error' : 'warn', message: `[${e.agent}] ${e.message}`, source: 'system' });
-        }
-      });
-      if (state.logs.length > 100) state.logs = state.logs.slice(-100);
-      renderLogs();
-    }
-
-    // ── Trading paused (sync from bot) ──
-    if (d.trading_paused !== undefined && d.trading_paused !== state.tradingPaused) {
-      state.tradingPaused = d.trading_paused;
-      const statusEl = document.getElementById('systemStatus');
-      if (state.tradingPaused) {
-        statusEl.className = 'status-badge badge-paused';
-        statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-amber);"></span>PAUSED';
-      } else {
-        statusEl.className = 'status-badge badge-live';
-        statusEl.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>LIVE';
-      }
-    }
-
-    // ── Market open status ──
-    if (d.market_open !== undefined) {
-      const el = document.getElementById('marketStatus');
-      if (d.market_open) {
-        el.className = 'status-badge badge-live';
-        el.innerHTML = '<span class="pulse-dot" style="background:var(--accent-green);"></span>OPEN';
-      } else {
-        el.className = 'status-badge badge-offline';
-        el.innerHTML = 'CLOSED';
-      }
-    }
-
-    // ── Investment plan ──
-    if (d.plan && typeof d.plan === 'object' && d.plan.targets) {
-      const targets = d.plan.targets;
-      if (typeof targets === 'object') {
-        state.planTargets = Object.entries(targets).map(([sym, wt]) => ({ symbol: sym, weight: typeof wt === 'number' ? wt : parseFloat(wt) || 0 }));
-        renderPlanTargets();
-      }
-      if (d.plan.stance) {
-        state.stance = d.plan.stance;
-        const colors = { bullish: 'var(--accent-green)', neutral: 'var(--accent-amber)', bearish: 'var(--accent-red)' };
-        document.getElementById('currentStance').textContent = d.plan.stance.toUpperCase();
-        document.getElementById('currentStance').style.color = colors[d.plan.stance] || 'var(--text-secondary)';
-      }
-    }
-
-  } catch (e) {
-    // API not available — keep demo data
-    if (apiConnected) {
-      apiConnected = false;
-      addLog('warn', '⚠️ Lost connection to trading bot API');
-    }
+  } catch(e) {
+    console.error('Fetch error:', e);
   }
 }
 
-// ── DEMO DATA (for when API is not running) ──
-function loadDemoData() {
-  const demoPositions = [
-    { symbol: 'SPY', qty: 50, market_val: 28500, unrealised: 420.50 },
-    { symbol: 'QQQ', qty: 30, market_val: 14200, unrealised: -85.20 },
-    { symbol: 'AAPL', qty: 25, market_val: 5125, unrealised: 215.00 },
-    { symbol: 'MSFT', qty: 15, market_val: 6300, unrealised: 178.30 },
-    { symbol: 'PAXG/USD', qty: 2, market_val: 5180, unrealised: 560.00 },
-  ];
-  renderPositions(demoPositions);
-
-  const demoSignals = [
-    { symbol: 'AAPL', side: 'buy', strategy: 'RSI Oversold', confidence: 0.82, time: '10:32:15' },
-    { symbol: 'MSFT', side: 'buy', strategy: 'MACD Cross', confidence: 0.71, time: '10:28:44' },
-    { symbol: 'TSLA', side: 'sell', strategy: 'Bollinger Break', confidence: 0.65, time: '10:15:22' },
-    { symbol: 'SPY', side: 'buy', strategy: 'VWAP Bounce', confidence: 0.78, time: '09:55:10' },
-    { symbol: 'NVDA', side: 'buy', strategy: 'EMA Cross', confidence: 0.69, time: '09:42:33' },
-  ];
-  demoSignals.forEach(s => addSignal(s));
-
-  const demoTrades = [
-    { time: '2026-04-08T10:32:15', symbol: 'AAPL', side: 'buy', qty: 5, price: 205.12, notional: 1025.60, strategy_tag: 'rsi_oversold' },
-    { time: '2026-04-08T10:15:22', symbol: 'TSLA', side: 'sell', qty: 3, price: 248.50, notional: 745.50, strategy_tag: 'bollinger_break' },
-    { time: '2026-04-08T09:55:10', symbol: 'SPY', side: 'buy', qty: 10, price: 570.20, notional: 5702.00, strategy_tag: 'vwap_bounce' },
-    { time: '2026-04-08T09:42:33', symbol: 'NVDA', side: 'buy', qty: 2, price: 892.40, notional: 1784.80, strategy_tag: 'ema_cross' },
-    { time: '2026-04-08T09:31:05', symbol: 'PAXG/USD', side: 'buy', qty: 2, price: 2590.00, notional: 5180.00, strategy_tag: 'plan_target' },
-  ];
-  renderTrades(demoTrades);
-
-  addLog('info', 'Dashboard connected — polling every 5s');
-  addLog('info', 'All 8 agents running normally');
-  addLog('info', 'Market hours: 8:30 AM — 3:00 PM CST');
+// ══════════════════════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════════════════════
+function $(id) { return document.getElementById(id); }
+function fmt(n) {
+  if (n == null || isNaN(n)) return '—';
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+function fmtPnl(n) {
+  if (n == null || isNaN(n)) return '—';
+  const sign = n >= 0 ? '+' : '';
+  return sign + '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function pnlClass(n) {
+  if (n > 0) return 'pnl-pos';
+  if (n < 0) return 'pnl-neg';
+  return 'pnl-zero';
+}
+function classifySymbol(sym) {
+  if (!sym) return 'stock';
+  const s = sym.toUpperCase();
+  if (s.includes('USD') || s.includes('BTC') || s.includes('ETH') || s.includes('PAX')) return 'crypto';
+  const etfs = ['SPY','QQQ','IWM','DIA','XLE','XLF','XLK','IEMG','SLV','GLD','COPX','RKLB','VTI','VOO'];
+  if (etfs.includes(s)) return 'etf';
+  return 'stock';
 }
 
-// ── INIT ──
-document.addEventListener('DOMContentLoaded', () => {
-  initPortfolioChart();
-  initAllocationChart();
-  renderAgents();
-  renderSignals();
-  renderPlanTargets();
-  renderPlanHistory();
-  renderOverrides();
-  renderLogs();
-  switchExec('ceo');
-  loadDemoData();
-  // Start polling
-  pollData();
-  setInterval(pollData, POLL_INTERVAL);
+// ══════════════════════════════════════════════════════════════════
+//  SIMPLE CANVAS HELPERS
+// ══════════════════════════════════════════════════════════════════
+function drawLine(ctx, points, color, width, fillGrad) {
+  if (!points || points.length < 2) return;
+  ctx.beginPath();
+  points.forEach((p, i) => i === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]));
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  if (fillGrad) {
+    ctx.beginPath();
+    points.forEach((p, i) => i === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]));
+    const last = points[points.length - 1];
+    ctx.lineTo(last[0], ctx._h);
+    ctx.lineTo(points[0][0], ctx._h);
+    ctx.closePath();
+    ctx.fillStyle = fillGrad;
+    ctx.fill();
+  }
+}
+function makeGrad(ctx, color, h) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, color.replace(')', ',0.25)').replace('rgb', 'rgba'));
+  g.addColorStop(1, color.replace(')', ',0)').replace('rgb', 'rgba'));
+  return g;
+}
+// Canvas sizing — measure once per canvas using the CARD's content box
+const _canvasSizes = new Map();
+function initCanvasSize(canvas) {
+  // Walk up to the .card element and measure its content width
+  let card = canvas.parentElement;
+  while (card && !card.classList.contains('card')) card = card.parentElement;
+  if (!card) card = canvas.parentElement;
+  // Get card's inner width (subtract padding)
+  const style = getComputedStyle(card);
+  const padL = parseFloat(style.paddingLeft) || 0;
+  const padR = parseFloat(style.paddingRight) || 0;
+  const w = Math.round(card.getBoundingClientRect().width - padL - padR);
+  return w;
+}
+
+function clearCanvas(canvas) {
+  const ctx = canvas.getContext('2d');
+  const cssH = parseInt(canvas.getAttribute('height')) || 100;
+  if (!canvas.offsetParent) return null;
+  
+  let w = _canvasSizes.get(canvas);
+  if (!w) {
+    w = initCanvasSize(canvas);
+    if (w <= 0) return null;
+    // Set buffer and lock CSS dimensions permanently
+    canvas.width = w * 2;
+    canvas.height = cssH * 2;
+    canvas.style.cssText = `display:block;width:${w}px;height:${cssH}px;`;
+    _canvasSizes.set(canvas, w);
+  }
+  
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(2, 2);
+  ctx.clearRect(0, 0, w, cssH);
+  ctx._w = w;
+  ctx._h = cssH;
+  return ctx;
+}
+window.addEventListener('resize', () => { _canvasSizes.clear(); });
+function drawBars(ctx, values, colors, w, h, gap) {
+  const max = Math.max(...values.map(Math.abs), 1);
+  const barW = (w - gap * (values.length - 1)) / values.length;
+  values.forEach((v, i) => {
+    const barH = (Math.abs(v) / max) * h * 0.85;
+    const x = i * (barW + gap);
+    const y = h - barH;
+    ctx.fillStyle = colors[i] || '#00ff88';
+    ctx.globalAlpha = 0.65 + (i / values.length) * 0.3;
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW, barH, [2, 2, 0, 0]);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+function drawDonut(canvas, segments, size) {
+  if (!canvas.offsetParent) return; // hidden tab
+  const ctx = canvas.getContext('2d');
+  // Only reallocate if needed
+  const needW = size * 2;
+  if (canvas.width !== needW) {
+    canvas.width = size * 2;
+    canvas.height = size * 2;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(2, 2);
+  const cx = size / 2, cy = size / 2, r = size / 2 - 6, lw = 8;
+  let angle = -Math.PI / 2;
+  // Background ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = lw;
+  ctx.stroke();
+  segments.forEach(seg => {
+    const sweep = (seg.pct / 100) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, angle, angle + sweep);
+    ctx.strokeStyle = seg.color;
+    ctx.lineWidth = lw;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    angle += sweep;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  HEARTBEAT ANIMATION
+// ══════════════════════════════════════════════════════════════════
+let hbData = Array(80).fill(0);
+let hbCtx = null;
+let hbW = 0, hbH = 0;
+
+function animateHeartbeat() {
+  hbData.push((Math.random() - 0.5) * 20 + (Math.random() > 0.88 ? 18 : 0));
+  hbData.shift();
+  const canvas = $('chartHeartbeat');
+  if (!canvas) return;
+  // Only visible on Command tab
+  if (!canvas.offsetParent) return;
+  
+  // Init buffer once
+  if (!hbCtx) {
+    hbCtx = clearCanvas(canvas);
+    if (!hbCtx) return;
+    hbW = hbCtx._w;
+    hbH = hbCtx._h;
+  }
+  
+  // Just clear and redraw — no buffer reallocation
+  hbCtx.setTransform(1, 0, 0, 1, 0, 0);
+  hbCtx.scale(2, 2);
+  hbCtx.clearRect(0, 0, hbW, hbH);
+  
+  hbCtx.beginPath();
+  hbCtx.moveTo(0, hbH / 2);
+  hbCtx.lineTo(hbW, hbH / 2);
+  hbCtx.strokeStyle = 'rgba(0,255,136,0.08)';
+  hbCtx.lineWidth = 0.5;
+  hbCtx.stroke();
+  const pts = hbData.map((v, i) => [i * (hbW / hbData.length), hbH / 2 - v]);
+  hbCtx.beginPath();
+  pts.forEach((p, i) => i === 0 ? hbCtx.moveTo(p[0], p[1]) : hbCtx.lineTo(p[0], p[1]));
+  hbCtx.strokeStyle = '#00ff88';
+  hbCtx.lineWidth = 1.5;
+  hbCtx.lineJoin = 'round';
+  hbCtx.stroke();
+}
+setInterval(animateHeartbeat, 200);
+
+// ══════════════════════════════════════════════════════════════════
+//  RENDER ALL
+// ══════════════════════════════════════════════════════════════════
+// Track whether charts have been drawn for the current tab
+let _chartsDrawn = {};
+
+// Called on tab switch or first data load — draws all CANVAS charts for the active tab
+function renderCharts() {
+  const activeTab = document.querySelector('.tab.active')?.dataset.tab || 'dashboard';
+  const positions = state.positions || [];
+  const outcomes = state.outcomes || [];
+  const signals = state.signals || [];
+  const trades = state.trades || [];
+
+  // Clear canvas size cache so they re-measure fresh
+  _canvasSizes.clear();
+  hbCtx = null;
+
+  if (activeTab === 'dashboard') {
+    renderIntradayChart(positions);
+    renderSparkline();
+    renderAllocation();
+  }
+  if (activeTab === 'performance') {
+    renderEquityCurve();
+    renderDailyPnl();
+    renderDistribution(outcomes);
+    renderSignalConfidence(signals);
+    renderStrategyMix(trades);
+  }
+  if (activeTab === 'command') {
+    renderRejections();
+  }
+  _chartsDrawn[activeTab] = true;
+}
+
+// Called every 5s — only updates TEXT/DOM, never touches canvas
+function render() {
+  const positions = state.positions || [];
+  const trades = state.trades || [];
+  const signals = state.signals || [];
+  const outcomes = state.outcomes || [];
+  const plan = state.plan || {};
+
+  // ── Header badges ──
+  const isLive = state.equity > 0;
+  $('pulseDot').style.background = isLive ? 'var(--green)' : 'var(--red)';
+  $('badgeMarket').textContent = state.market_open ? 'MARKET OPEN' : 'MARKET CLOSED';
+  $('badgeMarket').className = 'badge ' + (state.market_open ? 'badge-market' : 'badge-closed');
+  if (state.trading_paused) {
+    $('btnEmergency').textContent = 'PAUSED';
+    $('btnEmergency').style.background = 'var(--red)';
+    $('btnEmergency').style.color = '#fff';
+  }
+
+  // ── Dashboard Tab ──
+  const equity = state.equity;
+  const lastEquity = state.last_equity || equity;
+  const change = equity && lastEquity ? equity - lastEquity : 0;
+  const changePct = lastEquity ? ((change / lastEquity) * 100) : 0;
+  $('portValue').textContent = fmt(equity);
+  if (equity) {
+    const sign = change >= 0 ? '+' : '';
+    $('portChange').innerHTML = `<span class="${pnlClass(change)}">${sign}$${Math.abs(change).toFixed(2)} (${sign}${changePct.toFixed(2)}%)</span>`;
+  }
+  $('buyingPower').textContent = fmt(state.buying_power);
+  $('cashVal').textContent = 'Cash: ' + fmt(state.cash);
+  $('todayTrades').textContent = state.total_trades || trades.length || '0';
+
+  // Win rate from outcomes
+  const closedWins = outcomes.filter(o => o.pnl > 0).length;
+  const closedTotal = outcomes.length;
+  const wr = closedTotal > 0 ? Math.round((closedWins / closedTotal) * 100) : null;
+  $('winRate').textContent = wr != null ? `Win rate: ${wr}%` : 'Win rate: —';
+  $('perfWinRate').textContent = wr != null ? `${wr}%` : '—';
+
+  $('activeSignals').textContent = signals.length || '0';
+  if (signals.length > 0) {
+    const avgConf = signals.reduce((s, sig) => s + sig.confidence, 0) / signals.length;
+    $('avgConfidence').textContent = `Avg confidence: ${(avgConf * 100).toFixed(0)}%`;
+  }
+
+  // Net PnL
+  const netPnl = positions.reduce((sum, p) => sum + (p.unrealized_pl || 0), 0);
+  $('netPnl').textContent = fmtPnl(netPnl);
+  $('netPnl').className = 'card-value ' + pnlClass(netPnl);
+  $('intradayPnl').textContent = fmtPnl(netPnl);
+  $('intradayPnl').style.color = netPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // ── Text-only renders (safe to run every 5s) ──
+  renderAlerts(positions);
+  renderPositions(positions);
+  renderRiskGauges(positions);
+  renderPnlByClass(positions);
+  renderSignals(signals);
+  renderAgentDots();
+
+  // Performance text
+  $('totalTrades').textContent = state.total_trades || closedTotal || '0';
+  const avgW = outcomes.filter(o => o.pnl > 0);
+  const avgL = outcomes.filter(o => o.pnl < 0);
+  const avgWin = avgW.length ? avgW.reduce((s, o) => s + o.pnl, 0) / avgW.length : null;
+  const avgLoss = avgL.length ? avgL.reduce((s, o) => s + o.pnl, 0) / avgL.length : null;
+  $('avgWin').textContent = avgWin != null ? fmtPnl(avgWin) : '—';
+  $('avgLoss').textContent = avgLoss != null ? fmtPnl(avgLoss) : '—';
+  renderStrategyPerf(outcomes);
+  renderPlan(plan);
+  renderTradeLog(trades);
+
+  // Command text
+  renderOrgChart();
+  renderStreamHealth();
+  renderAgentUptime();
+  renderSysConfig();
+  renderErrors();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  RENDER FUNCTIONS
+// ══════════════════════════════════════════════════════════════════
+
+function renderAlerts(positions) {
+  const alerts = [];
+  // Concentration check from pre-computed data
+  const conc = state.concentration || {};
+  if (conc.max_pct > 30) {
+    alerts.push(`<span class="alert-label">Concentration warning:</span> <span class="alert-detail">${conc.symbol} is ${conc.max_pct.toFixed(1)}% of portfolio (limit: 15%)</span>`);
+  }
+  // Agent crash check
+  (state.agent_status || []).forEach(a => {
+    if (a.status === 'error' || a.status === 'crashed') {
+      alerts.push(`<span class="alert-label">Agent error:</span> <span class="alert-detail">${a.name} — ${a.last_error || 'unknown'}</span>`);
+    }
+  });
+  // Trading paused
+  if (state.trading_paused) {
+    alerts.push(`<span class="alert-label">Trading paused:</span> <span class="alert-detail">Order execution is halted</span>`);
+  }
+
+  const banner = $('alertBanner');
+  if (alerts.length > 0) {
+    banner.style.display = 'flex';
+    $('alertText').innerHTML = alerts.join('<br>');
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function renderPositions(positions) {
+  const body = $('positionsBody');
+  if (!positions || positions.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-4);padding:20px;">No positions</td></tr>';
+    return;
+  }
+  // Sort by value descending
+  const sorted = [...positions].sort((a, b) => (b.market_value || 0) - (a.market_value || 0));
+  body.innerHTML = sorted.map(p => {
+    const cls = classifySymbol(p.symbol);
+    const pnl = p.unrealized_pl || p.pnl || 0;
+    const qty = p.qty != null ? (Number(p.qty) === Math.floor(Number(p.qty)) ? p.qty : Number(p.qty).toFixed(4)) : '—';
+    return `<tr>
+      <td class="sym sym-${cls}">${p.symbol}</td>
+      <td>${qty}</td>
+      <td>${fmt(p.market_value)}</td>
+      <td style="text-align:right" class="${pnlClass(pnl)}">${fmtPnl(pnl)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderAllocation() {
+  const alloc = state.allocation || {};
+  if (Object.keys(alloc).length === 0) return;
+  const colorMap = { crypto: '#ffaa00', us_equity: '#00c8ff', Stocks: '#00c8ff', stock: '#00c8ff', etf: '#a78bfa', unknown: '#666' };
+  const nameMap = { crypto: 'Crypto', us_equity: 'Stocks', Stocks: 'Stocks', stock: 'Stocks', etf: 'ETFs', unknown: 'Other' };
+  const segments = Object.entries(alloc)
+    .filter(([, pct]) => pct > 0)
+    .map(([cls, pct]) => ({
+      pct,
+      color: colorMap[cls] || '#666',
+      label: nameMap[cls] || cls
+    })).sort((a, b) => b.pct - a.pct);
+
+  if (segments.length > 0) {
+    drawDonut($('chartAllocation'), segments, 90);
+    $('allocLegend').innerHTML = segments.map(s =>
+      `<div class="donut-legend-item"><div class="donut-swatch" style="background:${s.color}"></div><span style="color:var(--text-2)">${s.label} ${Math.round(s.pct)}%</span></div>`
+    ).join('');
+  }
+}
+
+function renderRiskGauges(positions) {
+  const conc = state.concentration || {};
+  const heat = state.heat_status || {};
+  const heatPct = heat.portfolio_heat || heat.heat || 0;
+  const vix = heat.vix || null;
+
+  const gauges = [
+    { label: 'Portfolio heat', value: `${(typeof heatPct === 'number' ? heatPct : 0).toFixed(1)}%`, pct: heatPct, color: heatPct < 30 ? 'var(--green)' : heatPct < 60 ? 'var(--amber)' : 'var(--red)' },
+    { label: 'VIX regime', value: vix ? `${vix < 20 ? 'normal' : vix < 30 ? 'elevated' : 'high'} (${Math.round(vix)})` : '—', pct: vix ? Math.min(vix / 50 * 100, 100) : 0, color: !vix || vix < 20 ? 'var(--green)' : vix < 30 ? 'var(--amber)' : 'var(--red)' },
+    { label: 'Concentration', value: `${(conc.max_pct || 0).toFixed(1)}% (${conc.symbol || '—'})`, pct: conc.max_pct || 0, color: (conc.max_pct || 0) < 15 ? 'var(--green)' : (conc.max_pct || 0) < 30 ? 'var(--amber)' : 'var(--red)' },
+  ];
+
+  $('riskGauges').innerHTML = gauges.map(g => `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="color:var(--text-2);font-size:13px;">${g.label}</span>
+        <span style="color:${g.color};font-size:13px;">${g.value}</span>
+      </div>
+      <div class="prog-track"><div class="prog-fill" style="width:${Math.min(g.pct, 100)}%;background:${g.color};"></div></div>
+    </div>
+  `).join('');
+}
+
+function renderPnlByClass(positions) {
+  const classes = {};
+  positions.forEach(p => {
+    const cls = classifySymbol(p.symbol);
+    const pnl = p.unrealized_pl || p.pnl || 0;
+    classes[cls] = (classes[cls] || 0) + pnl;
+  });
+  const colorMap = { crypto: '#ffaa00', stock: '#00c8ff', etf: '#a78bfa' };
+  const nameMap = { crypto: 'Crypto', stock: 'Stocks', etf: 'ETFs' };
+  const maxAbs = Math.max(...Object.values(classes).map(Math.abs), 1);
+
+  $('pnlByClass').innerHTML = Object.entries(classes).sort((a, b) => b[1] - a[1]).map(([cls, pnl]) => `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="color:${colorMap[cls]};font-size:13px;">${nameMap[cls] || cls}</span>
+        <span class="${pnlClass(pnl)}" style="font-size:13px;">${fmtPnl(pnl)}</span>
+      </div>
+      <div class="prog-track" style="height:6px;"><div class="prog-fill" style="width:${(Math.abs(pnl) / maxAbs * 100).toFixed(0)}%;background:${pnl >= 0 ? colorMap[cls] : 'var(--red)'};opacity:0.7;"></div></div>
+    </div>
+  `).join('');
+}
+
+function renderSignals(signals) {
+  const feed = $('signalsFeed');
+  if (!signals || signals.length === 0) {
+    feed.innerHTML = '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No active signals</div>';
+    return;
+  }
+  feed.innerHTML = signals.slice(0, 5).map(s => `
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;">
+      <span style="color:var(--text-2);">${s.symbol}</span>
+      <span style="color:${s.side === 'buy' ? 'var(--green)' : 'var(--red)'};">${s.side?.toUpperCase()}</span>
+      <span style="color:var(--text-3);">${s.strategy || ''}</span>
+      <span style="color:var(--text-3);">${(s.confidence * 100).toFixed(0)}%</span>
+    </div>
+  `).join('');
+}
+
+function renderAgentDots() {
+  const agents = state.agent_status || [];
+  $('agentDots').innerHTML = agents.map(a => {
+    const ok = a.status === 'running';
+    return `<div style="display:flex;align-items:center;gap:5px;">
+      <span class="status-dot ${ok ? 'dot-ok' : a.status === 'stale' ? 'dot-warn' : 'dot-err'}"></span>
+      <span style="color:var(--text-2);font-size:13px;">${a.name}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Performance Tab Renders ──
+
+function renderEquityCurve() {
+  const canvas = $('chartEquity');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  // Generate curve from initial capital to current equity
+  const n = 30;
+  const equity = state.equity || 100000;
+  const initial = 100000; // paper trading starts at 100k
+  const pts = [];
+  // Seeded walk so it doesn't re-randomize every refresh
+  if (!window._eqSeed) window._eqSeed = Array.from({length: n}, (_, i) => Math.sin(i * 7.3 + 42) * 0.5);
+  let val = initial;
+  const totalChange = equity - initial;
+  for (let i = 0; i < n; i++) {
+    const progress = (i + 1) / n;
+    const target = initial + totalChange * progress;
+    val += (target - val) * 0.3 + window._eqSeed[i] * Math.abs(totalChange / n) * 3;
+    pts.push(val);
+  }
+  pts[pts.length - 1] = equity; // pin endpoint
+  const min = Math.min(...pts) - 50;
+  const max = Math.max(...pts) + 50;
+  const pad = 40;
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i < 4; i++) {
+    const y = (i / 3) * (h - 10) + 5;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+  // Y labels
+  ctx.font = '9px JetBrains Mono';
+  ctx.fillStyle = '#333';
+  ctx.fillText('$' + Math.round(max).toLocaleString(), 0, 12);
+  ctx.fillText('$' + Math.round((max + min) / 2).toLocaleString(), 0, h / 2 + 3);
+  ctx.fillText('$' + Math.round(min).toLocaleString(), 0, h - 3);
+  // Line
+  const linePoints = pts.map((v, i) => [
+    pad + (i / (n - 1)) * (w - pad),
+    5 + (1 - (v - min) / (max - min)) * (h - 10)
+  ]);
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(0,255,136,0.2)');
+  grad.addColorStop(1, 'rgba(0,255,136,0)');
+  drawLine(ctx, linePoints, '#00ff88', 2, grad);
+  // Dot at end
+  const last = linePoints[linePoints.length - 1];
+  ctx.beginPath();
+  ctx.arc(last[0], last[1], 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#00ff88';
+  ctx.fill();
+}
+
+function renderDailyPnl() {
+  const canvas = $('chartDailyPnl');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  // Placeholder data
+  const vals = [30, -12, 55, 28, -8, 70, 42, 38, -20, 60, 32, -15, 48, 52];
+  const colors = vals.map(v => v >= 0 ? '#00ff88' : '#ff4466');
+  drawBars(ctx, vals, colors, w, h, 4);
+  // Labels
+  ctx.font = '8px Outfit';
+  ctx.fillStyle = '#333';
+  ctx.fillText('14d ago', 2, h - 2);
+  ctx.fillStyle = '#555';
+  ctx.fillText('Today', w - 28, h - 2);
+}
+
+function renderDistribution(trades) {
+  const canvas = $('chartDistribution');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  // Buckets: -100, -50, -25, -10, 0, +10, +25, +50, +100
+  const buckets = [3, 8, 15, 25, 35, 22, 12, 5];
+  const colors = ['#ff4466','#ff4466','#ff4466','#666','#00ff88','#00ff88','#00ff88','#00ff88'];
+  drawBars(ctx, buckets, colors, w, h - 16, 3);
+  // Labels
+  ctx.font = '7px JetBrains Mono';
+  ctx.fillStyle = '#444';
+  const labels = ['-50','-25','-10','0','+10','+25','+50','+100'];
+  const barW = (w - 3 * 7) / 8;
+  labels.forEach((l, i) => {
+    ctx.fillText(l, i * (barW + 3) + barW / 2 - 6, h - 2);
+  });
+}
+
+function renderStrategyPerf(trades) {
+  // Group by strategy
+  const strats = {};
+  trades.forEach(t => {
+    const s = t.strategy_tag || t.strategy || 'unknown';
+    if (!strats[s]) strats[s] = { pnl: 0, count: 0 };
+    strats[s].pnl += (t.pnl || 0);
+    strats[s].count++;
+  });
+  const sorted = Object.entries(strats).sort((a, b) => b[1].pnl - a[1].pnl);
+  const maxPnl = Math.max(...sorted.map(([, v]) => Math.abs(v.pnl)), 1);
+
+  $('stratPerf').innerHTML = sorted.map(([name, v]) => `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="color:var(--text-2);font-size:12px;">${name}</span>
+        <div style="display:flex;gap:8px;">
+          <span style="color:var(--text-4);font-size:12px;">${v.count} trades</span>
+          <span class="${pnlClass(v.pnl)}" style="font-size:12px;">${fmtPnl(v.pnl)}</span>
+        </div>
+      </div>
+      <div class="prog-track"><div class="prog-fill" style="width:${(Math.abs(v.pnl)/maxPnl*100).toFixed(0)}%;background:${v.pnl >= 0 ? 'var(--green)' : 'var(--red)'};"></div></div>
+    </div>
+  `).join('') || '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No closed trades yet</div>';
+}
+
+function renderStrategyMix(trades) {
+  const strats = {};
+  trades.forEach(t => {
+    const s = t.strategy_tag || t.strategy || 'unknown';
+    strats[s] = (strats[s] || 0) + 1;
+  });
+  const total = Object.values(strats).reduce((a, b) => a + b, 0) || 1;
+  const colors = ['#00ff88', '#00c8ff', '#a78bfa', '#ff4466', '#ffaa00'];
+  const segments = Object.entries(strats).sort((a, b) => b[1] - a[1]).map(([name, count], i) => ({
+    pct: (count / total) * 100,
+    color: colors[i % colors.length],
+    label: name
+  }));
+
+  drawDonut($('chartStratMix'), segments, 90);
+  $('stratLegend').innerHTML = segments.map(s =>
+    `<div class="donut-legend-item"><div class="donut-swatch" style="background:${s.color}"></div><span style="color:var(--text-2)">${s.label} ${Math.round(s.pct)}%</span></div>`
+  ).join('');
+}
+
+function renderPlan(plan) {
+  const stance = plan.stance || '—';
+  const version = plan.version || '—';
+  $('planBadge').textContent = `v${version} · ${stance.toUpperCase()}`;
+
+  const targets = plan.targets || {};
+  if (Object.keys(targets).length === 0) {
+    $('planTargets').innerHTML = '<div style="color:var(--text-4);font-size:12px;">No targets set</div>';
+    return;
+  }
+  $('planTargets').innerHTML = Object.entries(targets).map(([name, target]) =>
+    `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);">
+      <span style="color:var(--text-2);font-size:12px;">${name}</span>
+      <span style="color:var(--text-1);font-size:12px;">${typeof target === 'number' ? target + '%' : target}</span>
+    </div>`
+  ).join('');
+}
+
+function renderSignalConfidence(signals) {
+  const canvas = $('chartSignalConf');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(0, h); ctx.lineTo(w, h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(w, 0); ctx.stroke();
+  // Labels
+  ctx.font = '7px JetBrains Mono';
+  ctx.fillStyle = '#333';
+  ctx.fillText('1.0', 1, 8);
+  ctx.fillText('0.5', 1, h / 2 + 3);
+  ctx.fillText('0.0', 1, h - 2);
+  // Placeholder dots if no real signals (seeded)
+  if (!window._sigSeed) window._sigSeed = Array.from({length: 15}, (_, i) => ({
+    confidence: (Math.sin(i * 4.2 + 3) + 1) * 0.35 + 0.3,
+    profitable: Math.sin(i * 2.7) > -0.3
+  }));
+  const dotData = signals.length > 0 ? signals : window._sigSeed;
+  dotData.forEach((s, i) => {
+    const x = 20 + (i / (dotData.length - 1 || 1)) * (w - 30);
+    const y = h - (s.confidence || 0.5) * h;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = (s.profitable !== false && (s.pnl || 0) >= 0) ? '#00ff88' : '#ff4466';
+    ctx.globalAlpha = 0.5 + (i / dotData.length) * 0.4;
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function renderTradeLog(trades) {
+  // Filter and aggregate
+  const real = trades.filter(t => t.qty > 0 && t.notional > 0);
+  // Aggregate same symbol+side+strategy within same minute
+  const aggregated = [];
+  const seen = {};
+  real.forEach(t => {
+    const key = `${t.symbol}_${t.side}_${t.strategy_tag || t.strategy || ''}`;
+    if (!seen[key]) {
+      seen[key] = { ...t, _count: 1 };
+      aggregated.push(seen[key]);
+    } else {
+      seen[key].qty = (Number(seen[key].qty) + Number(t.qty));
+      seen[key].notional = (Number(seen[key].notional) + Number(t.notional));
+      seen[key]._count++;
+    }
+  });
+
+  const body = $('tradeLogBody');
+  const show = aggregated.slice(0, 10);
+  body.innerHTML = show.map(t => {
+    const time = t.time ? (typeof t.time === 'number' 
+      ? new Date(t.time * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+      : new Date(t.time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+    ) : '—';
+    const cls = classifySymbol(t.symbol);
+    const countLabel = t._count > 1 ? ` ×${t._count}` : '';
+    return `<tr>
+      <td>${time}</td>
+      <td class="sym-${cls}" style="font-weight:600;">${t.symbol}</td>
+      <td class="side-${(t.side || '').replace(/orderside\./i,'').toLowerCase()}">${(t.side || '').replace(/orderside\./i,'').toUpperCase()}</td>
+      <td>${Number(t.qty).toFixed(t.qty >= 1 ? 0 : 4)}</td>
+      <td>${fmt(t.price)}</td>
+      <td>${fmt(t.notional)}</td>
+      <td style="color:var(--text-4);">${t.strategy_tag || t.strategy || ''}${countLabel}</td>
+    </tr>`;
+  }).join('');
+
+  const hidden = aggregated.length - show.length;
+  const zeroCount = trades.length - real.length;
+  if (hidden > 0 || zeroCount > 0) {
+    const parts = [];
+    if (hidden > 0) parts.push(`+ ${hidden} more trades`);
+    if (zeroCount > 0) parts.push(`${zeroCount} $0 fills hidden`);
+    $('tradeLogMore').textContent = parts.join(' · ');
+  }
+}
+
+// ── Command Tab Renders ──
+
+function renderOrgChart() {
+  // Build a lookup from agent_status array
+  const agentMap = {};
+  (state.agent_status || []).forEach(a => { agentMap[a.name] = a; });
+  const row1Defs = [
+    { key: 'ref_library', name: 'Research', icon: '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>', color: 'var(--cyan)' },
+    { key: 'signal_generator', name: 'Intelligence', icon: '<circle cx="12" cy="12" r="9" stroke="var(--purple)" stroke-width="1.5" fill="none"/><path d="M12 8v4l3 3" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" fill="none"/>', color: 'var(--purple)' },
+    { key: 'plan_manager', name: 'Strategy', icon: '<rect x="3" y="3" width="18" height="18" rx="2" stroke="var(--amber)" stroke-width="1.5" fill="none"/><path d="M8 16l4-8 4 8" stroke="var(--amber)" stroke-width="1.5" fill="none"/>', color: 'var(--amber)' },
+    { key: 'order_execution', name: 'Trading', icon: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="var(--green)" stroke-width="1.5" fill="none"/>', color: 'var(--green)' },
+  ];
+  const row2Defs = [
+    { key: 'risk_manager', name: 'Risk', icon: '<path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z" stroke="var(--red)" stroke-width="1.5" fill="none"/>', color: 'var(--red)' },
+    { key: 'account_agent', name: 'Finance', icon: '<rect x="3" y="5" width="18" height="14" rx="2" stroke="var(--cyan)" stroke-width="1.5" fill="none"/><path d="M3 10h18" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>', color: 'var(--cyan)' },
+    { key: 'boss', name: 'Scheduler', icon: '<circle cx="12" cy="12" r="9" stroke="var(--amber)" stroke-width="1.5" fill="none"/><path d="M12 7v5h4" stroke="var(--amber)" stroke-width="1.5" stroke-linecap="round" fill="none"/>', color: 'var(--amber)' },
+    { key: 'diagnostics', name: 'IT/Ops', icon: '<path d="M12 20V10M18 20V4M6 20v-4" stroke="var(--green)" stroke-width="2" stroke-linecap="round" fill="none"/>', color: 'var(--green)' },
+  ];
+
+  function renderRow(defs) {
+    return defs.map(d => {
+      const info = agentMap[d.key] || {};
+      const ok = info.status === 'running' || !info.status;
+      const statusText = info.status === 'stale' ? 'STALE' : ok ? 'OK' : 'ERR';
+      return `<div class="org-node">
+        <svg width="22" height="22" viewBox="0 0 24 24">${d.icon}</svg>
+        <div class="org-node-name">${d.name}</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:3px;margin-top:3px;">
+          <span class="status-dot ${ok ? 'dot-ok' : 'dot-err'}"></span>
+          <span style="color:${ok ? 'var(--green)' : 'var(--red)'};font-size:11px;">${statusText}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  $('agentRow1').innerHTML = renderRow(row1Defs);
+  $('agentRow2').innerHTML = renderRow(row2Defs);
+
+  // COO status
+  const allOk = (state.agent_status || []).every(a => a.status === 'running');
+  $('cooStatus').innerHTML = allOk
+    ? '<span style="color:var(--green);">ALL RUNNING</span>'
+    : '<span style="color:var(--red);">ISSUES DETECTED</span>';
+}
+
+function renderStreamHealth() {
+  // Placeholder stream data — can be wired to shared.py stream stats later
+  const streams = {
+    trade: { last_msg: 2, ok: true },
+    stock: { last_msg: 5, ok: true },
+    crypto: { last_msg: 8, ok: true },
+    options: { last_msg: null, ok: false, error: '405 err' },
+    news: { last_msg: 62, ok: true },
+  };
+
+  $('streamHealth').innerHTML = Object.entries(streams).map(([name, info]) => {
+    const ok = info.ok !== false;
+    const freshness = info.last_msg != null ? Math.max(0, 100 - info.last_msg) : 0;
+    const timeText = info.error || (info.last_msg != null ? `${info.last_msg}s ago` : '—');
+    return `<div class="stream-row">
+      <span class="status-dot ${ok ? (info.last_msg > 60 ? 'dot-warn' : 'dot-ok') : 'dot-warn'}"></span>
+      <span class="stream-name">${name}</span>
+      <div class="stream-bar"><div class="prog-track"><div class="prog-fill" style="width:${freshness}%;background:${ok ? 'var(--green)' : 'var(--amber)'};opacity:0.6;"></div></div></div>
+      <span class="stream-time" style="color:${ok ? 'var(--text-4)' : 'var(--amber)'};">${timeText}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderAgentUptime() {
+  const names = ['ref_library','signal_gen','order_exec','risk_mgr','plan_mgr','account','boss','diagnostics'];
+  // Placeholder uptime data — in production this comes from agent_logs table
+  const uptimeData = {
+    ref_library: [100],
+    signal_gen: [92, -3, 5],
+    order_exec: [100],
+    risk_mgr: [100],
+    plan_mgr: [85, 2, 13],
+    account: [100],
+    boss: [100],
+    diagnostics: [100],
+  };
+
+  $('agentUptime').innerHTML = names.map(name => {
+    const segments = uptimeData[name] || [100];
+    return `<div class="uptime-row">
+      <span class="uptime-label">${name}</span>
+      <div class="uptime-bar">
+        ${segments.map(s => {
+          const cls = s < 0 ? 'up-crash' : s === 0 ? 'up-warn' : 'up-ok';
+          return `<div class="${cls}" style="width:${Math.abs(s)}%;"></div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderRejections() {
+  const canvas = $('chartRejections');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  // Placeholder rejection data
+  const data = [
+    { label: 'Concentration', value: 8, color: '#ff4466' },
+    { label: 'Size limit', value: 4, color: '#ffaa00' },
+    { label: 'Portfolio %', value: 3, color: '#ffaa00' },
+    { label: 'PDT', value: 1, color: '#a78bfa' },
+  ];
+  const max = Math.max(...data.map(d => d.value), 1);
+  const barW = (w - 40) / data.length;
+  const gap = 10;
+  data.forEach((d, i) => {
+    const barH = (d.value / max) * (h - 36);
+    const x = 20 + i * (barW + gap / data.length);
+    const y = h - 30 - barH;
+    ctx.fillStyle = d.color;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW - gap, barH, [3, 3, 0, 0]);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Label
+    ctx.font = '9px Outfit';
+    ctx.fillStyle = d.color;
+    ctx.textAlign = 'center';
+    ctx.fillText(d.label, x + (barW - gap) / 2, h - 8);
+    // Value
+    ctx.fillStyle = '#666';
+    ctx.fillText(d.value, x + (barW - gap) / 2, y - 4);
+  });
+  ctx.textAlign = 'left';
+}
+
+function renderSysConfig() {
+  const config = [
+    ['Mode', 'PAPER', 'var(--amber)'],
+    ['Data feed', 'IEX (free)', 'var(--text-2)'],
+    ['Options', 'Level 3', 'var(--text-2)'],
+    ['Max position', '$10,000', 'var(--text-2)'],
+    ['Max portfolio %', '15%', 'var(--text-2)'],
+    ['Rebalance gap', '3%', 'var(--text-2)'],
+    ['Tick interval', '5s', 'var(--text-2)'],
+    ['Ref refresh', '4h', 'var(--text-2)'],
+    ['Database', 'SQLite', 'var(--text-2)'],
+    ['Uptime', '—', 'var(--text-2)'],
+  ];
+  $('sysConfig').innerHTML = config.map(([k, v, c]) =>
+    `<span style="color:var(--text-4);">${k}</span><span style="color:${c};font-weight:500;">${v}</span>`
+  ).join('');
+}
+
+function renderErrors() {
+  const errors = state.errors || [];
+  $('errorLog').innerHTML = errors.length > 0 ? errors.map(e =>
+    `<div class="err-item">
+      <div class="err-head"><span class="err-msg">${e.msg}</span><span class="err-time">${e.time}</span></div>
+      <div class="err-detail">${e.detail}</div>
+    </div>`
+  ).join('') : '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No errors</div>';
+}
+
+function renderIntradayChart(positions) {
+  const canvas = $('chartIntraday');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  // Center line
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+  // Use unrealized P&L to generate a curve shape (seeded so it doesn't jitter)
+  const totalPnl = (positions || []).reduce((s, p) => s + (p.unrealized_pl || 0), 0);
+  const n = 40;
+  if (!window._intradaySeed) window._intradaySeed = Array.from({length: n}, (_, i) => Math.sin(i * 3.7 + 13) * 0.5);
+  const pts = [];
+  let val = 0;
+  for (let i = 0; i < n; i++) {
+    val += (totalPnl / n) + window._intradaySeed[i] * (Math.abs(totalPnl) * 0.05 + 5);
+    pts.push(val);
+  }
+  const min = Math.min(...pts, -10);
+  const max = Math.max(...pts, 10);
+  const range = max - min || 1;
+  const linePoints = pts.map((v, i) => [
+    (i / (n - 1)) * w,
+    h * 0.1 + (1 - (v - min) / range) * h * 0.8
+  ]);
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(0,255,136,0.2)');
+  grad.addColorStop(1, 'rgba(0,255,136,0)');
+  drawLine(ctx, linePoints, '#00ff88', 1.8, grad);
+  // Pulsing dot
+  const last = linePoints[linePoints.length - 1];
+  ctx.beginPath();
+  ctx.arc(last[0], last[1], 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#00ff88';
+  ctx.fill();
+  // Axis labels
+  ctx.font = '8px JetBrains Mono';
+  ctx.fillStyle = '#333';
+  ctx.fillText('9:30', 2, h - 2);
+  ctx.fillText('NOW', w - 24, h - 2);
+}
+
+function renderSparkline() {
+  const svg = $('sparkIntraday');
+  if (!window._sparkSeed) window._sparkSeed = Array.from({length: 16}, (_, i) => Math.sin(i * 5.1 + 7) * 1.5);
+  const pts = Array.from({length: 16}, (_, i) => {
+    const y = 20 - (i / 15) * 16 + window._sparkSeed[i];
+    return `${i * 8},${y}`;
+  });
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="#00ff88" stroke-width="1.2" opacity="0.6"/>`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  EMERGENCY STOP
+// ══════════════════════════════════════════════════════════════════
+$('btnEmergency').addEventListener('click', async () => {
+  if (!confirm('Are you sure? This will cancel all orders and pause the bot.')) return;
+  try {
+    await fetch(API + '/api/exec/emergency-stop', { method: 'POST' });
+    $('btnEmergency').textContent = 'STOPPED';
+    $('btnEmergency').style.background = 'var(--red)';
+    $('btnEmergency').style.color = '#fff';
+  } catch(e) {
+    alert('Failed to stop: ' + e.message);
+  }
 });
+
+// ══════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════
+fetchData();
+setInterval(fetchData, 5000);
 </script>
 </body>
 </html>
