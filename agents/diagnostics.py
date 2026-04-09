@@ -6,9 +6,9 @@ from alpaca_local import stream as alpaca_stream
 
 logger = logging.getLogger(__name__)
 
-_HEARTBEAT_TIMEOUT  = 60   # seconds ? alert if any stream silent for this long
-_RECONNECT_FLAP_MAX = 5    # reconnects in _RECONNECT_WINDOW triggers alert
-_RECONNECT_WINDOW   = 3600 # seconds (1 hour)
+_HEARTBEAT_TIMEOUT  = settings.HEARTBEAT_TIMEOUT
+_RECONNECT_FLAP_MAX = settings.RECONNECT_FLAP_MAX
+_RECONNECT_WINDOW   = settings.RECONNECT_WINDOW
 
 _last_reconnect_counts = {k: 0 for k in ("trade", "stock", "crypto", "option", "news")}
 _reconnect_window_start = time.time()

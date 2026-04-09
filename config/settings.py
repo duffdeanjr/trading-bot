@@ -88,6 +88,14 @@ MAX_RETRIES       = 3    # order exec retry attempts on transient errors
 BACKOFF_BASE      = 2    # exponential backoff multiplier (seconds)
 REF_REFRESH_HOURS = 4    # how often ref library refreshes static caches
 
+# ── plan manager ─────────────────────────────────────────────
+PLAN_REFRESH_INTERVAL = int(os.getenv("PLAN_REFRESH_INTERVAL", "3600"))  # seconds
+
+# ── diagnostics ───────────────────────────────────────────────
+HEARTBEAT_TIMEOUT  = int(os.getenv("HEARTBEAT_TIMEOUT", "60"))    # seconds; alert if stream silent
+RECONNECT_FLAP_MAX = int(os.getenv("RECONNECT_FLAP_MAX", "5"))    # reconnects within window triggers alert
+RECONNECT_WINDOW   = int(os.getenv("RECONNECT_WINDOW", "3600"))   # seconds
+
 # ── logging ───────────────────────────────────────────────────
 LOG_LEVEL = logging.INFO  # DEBUG | INFO | WARNING | ERROR
 

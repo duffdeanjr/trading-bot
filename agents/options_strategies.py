@@ -100,7 +100,9 @@ def iron_condor(symbol: str, underlying_price: float,
     long_put   = _find_strike(chain, underlying_price, -0.05 - wing_width_pct, "put")
 
     if not all([short_call, short_put, long_call, long_put]):
-        logger.debug(f"iron_condor: could not build all legs for {symbol}")
+        missing = [name for name, leg in [("short_call", short_call), ("short_put", short_put),
+                                           ("long_call", long_call), ("long_put", long_put)] if not leg]
+        logger.debug(f"iron_condor: could not build all legs for {symbol}, missing: {missing}")
         return None
 
     legs = [

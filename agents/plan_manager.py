@@ -10,7 +10,7 @@ from storage.database import write_investment_plan, read_latest_plan, get_strate
 
 logger = logging.getLogger(__name__)
 
-PLAN_REFRESH_INTERVAL = 3600
+PLAN_REFRESH_INTERVAL = settings.PLAN_REFRESH_INTERVAL
 PLAN_COOLDOWN = 60
 
 _lock = threading.Lock()
@@ -99,9 +99,10 @@ def _get_dirty_symbols() -> set:
 def _check_corp_action_exclusions(plan: dict, dirty: set = None) -> list:
     if dirty is None:
         dirty = _get_dirty_symbols()
+    current_exclusions = plan.get("exclusions", [])
     exclusions = []
     for sym in dirty:
-        if sym not in plan["exclusions"]:
+        if sym not in current_exclusions:
             exclusions.append(sym)
             logger.info(f"plan_manager: excluding {sym} due to pending corp action")
     return exclusions
@@ -123,17 +124,18 @@ def _compute_stance(signals: list) -> str:
 
 def _apply_risk_constraints(plan: dict) -> dict:
     max_pct = settings.MAX_PORTFOLIO_PCT
-    for sym, entry in plan["symbols"].items():
-        if entry["target_pct"] > max_pct:
+    symbols = plan.get("symbols", {})
+    for sym, entry in symbols.items():
+        if entry.get("target_pct", 0) > max_pct:
             entry["target_pct"] = max_pct
-            entry["reason"] += " [capped by risk limit]"
-    max_invested = 1.0 - plan["cash_target_pct"]
-    total = sum(e["target_pct"] for e in plan["symbols"].values())
+            entry["reason"] = entry.get("reason", "") + " [capped by risk limit]"
+    max_invested = 1.0 - plan.get("cash_target_pct", 0.10)
+    total = sum(e.get("target_pct", 0) for e in symbols.values())
     if total > max_invested and total > 0:
         scale = max_invested / total
-        for entry in plan["symbols"].values():
-            entry["target_pct"] *= scale
-        plan["notes"].append(f"scaled positions by {scale:.2f} to maintain cash buffer")
+        for entry in symbols.values():
+            entry["target_pct"] = entry.get("target_pct", 0) * scale
+        plan.setdefault("notes", []).append(f"scaled positions by {scale:.2f} to maintain cash buffer")
     return plan
 
 

@@ -202,8 +202,6 @@ def _check_portfolio_heat(side: str) -> tuple:
     return True, ""
 
 # -- circuit breaker (R3) --
-MAX_DAILY_LOSS_PCT = float(getattr(settings, "MAX_DAILY_LOSS_PCT", 0.05))
-MAX_CONSECUTIVE_LOSSES = int(getattr(settings, "MAX_CONSECUTIVE_LOSSES", 5))
 _circuit_breaker_tripped = False
 _circuit_breaker_ts = 0.0
 
@@ -232,24 +230,24 @@ def _check_circuit_breaker() -> tuple:
         last_equity = float(getattr(acct, "last_equity", 0) or 0)
         if last_equity > 0 and equity > 0:
             daily_pnl_pct = (equity - last_equity) / last_equity
-            if daily_pnl_pct < -MAX_DAILY_LOSS_PCT:
+            if daily_pnl_pct < -settings.MAX_DAILY_LOSS_PCT:
                 _circuit_breaker_tripped = True
                 _circuit_breaker_ts = time.time()
                 logger.error(f"risk: CIRCUIT BREAKER TRIPPED - daily loss {daily_pnl_pct:.2%} "
-                           f"exceeds -{MAX_DAILY_LOSS_PCT:.0%} threshold")
+                           f"exceeds -{settings.MAX_DAILY_LOSS_PCT:.0%} threshold")
                 return False, f"circuit breaker: daily loss {daily_pnl_pct:.2%}"
 
     # Check consecutive losses from outcomes table
     try:
-        recent = database.get_closed_outcomes(limit=MAX_CONSECUTIVE_LOSSES)
-        if len(recent) >= MAX_CONSECUTIVE_LOSSES:
+        recent = database.get_closed_outcomes(limit=settings.MAX_CONSECUTIVE_LOSSES)
+        if len(recent) >= settings.MAX_CONSECUTIVE_LOSSES:
             all_losses = all((r.get("pnl") or 0) < 0 for r in recent)
             if all_losses:
                 _circuit_breaker_tripped = True
                 _circuit_breaker_ts = time.time()
-                logger.error(f"risk: CIRCUIT BREAKER TRIPPED - {MAX_CONSECUTIVE_LOSSES} "
+                logger.error(f"risk: CIRCUIT BREAKER TRIPPED - {settings.MAX_CONSECUTIVE_LOSSES} "
                            f"consecutive losing trades")
-                return False, f"circuit breaker: {MAX_CONSECUTIVE_LOSSES} consecutive losses"
+                return False, f"circuit breaker: {settings.MAX_CONSECUTIVE_LOSSES} consecutive losses"
     except Exception:
         pass
 
