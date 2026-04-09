@@ -1,0 +1,457 @@
+2026-04-08 12:51:35 INFO     main: ============================================================
+2026-04-08 12:51:35 INFO     main: trading bot starting ? IS_PAPER=True
+2026-04-08 12:51:35 INFO     main:   BASE_URL        = https://paper-api.alpaca.markets
+2026-04-08 12:51:35 INFO     main:   DATA_FEED       = iex
+2026-04-08 12:51:35 INFO     main:   OPTIONS_LEVEL   = 3
+2026-04-08 12:51:35 INFO     main:   MAX_POSITION_SIZE = $10,000
+2026-04-08 12:51:35 INFO     main:   MAX_PORTFOLIO_PCT = 15%
+2026-04-08 12:51:35 INFO     main: ============================================================
+2026-04-08 12:51:35 INFO     main: step 1: config loaded and validated
+2026-04-08 12:51:35 INFO     storage.database: database initialised: trading.db (WAL mode)
+2026-04-08 12:51:36 INFO     main: step 2: MARKET_OPEN=True
+2026-04-08 12:51:36 INFO     main: step 3: connected ? account status=AccountStatus.ACTIVE
+2026-04-08 12:51:36 INFO     agents.ref_library: ref_library: starting
+2026-04-08 12:51:36 INFO     agents.ref_library: ref_library: starting full cache load - downloads -> C:\Users\duffd\OneDrive\Desktop\Claude IO\trading-bot\downloads
+2026-04-08 12:51:36 INFO     main: step 4: ref_library started ? waiting for ref_ready_event
+2026-04-08 12:51:38 INFO     agents.ref_library: ref_library: loaded 32694 assets
+2026-04-08 12:51:38 INFO     agents.ref_library: ref_library: loaded 23 calendar entries
+2026-04-08 12:51:38 INFO     agents.ref_library: ref_library: loaded 12360 corporate actions
+2026-04-08 12:51:39 INFO     agents.ref_library: ref_library: full cache load complete
+2026-04-08 12:51:39 INFO     agents.ref_library: ref_library: ref_ready_event set
+2026-04-08 12:51:39 INFO     main: step 4: ref_ready_event received
+2026-04-08 12:51:39 INFO     main: step 5: starting streams
+2026-04-08 12:51:39 INFO     alpaca_local.stream: alpaca_local.stream: stream started: trade
+2026-04-08 12:51:39 INFO     alpaca_local.stream: alpaca_local.stream: stream started: stock
+2026-04-08 12:51:39 INFO     alpaca_local.stream: alpaca_local.stream: stream started: crypto
+2026-04-08 12:51:39 INFO     alpaca_local.stream: alpaca_local.stream: stream started: option
+2026-04-08 12:51:39 INFO     alpaca.trading.stream: started trading stream
+2026-04-08 12:51:39 INFO     alpaca.trading.stream: starting trading websocket connection
+2026-04-08 12:51:39 INFO     alpaca_local.stream: alpaca_local.stream: stream started: news
+2026-04-08 12:51:39 INFO     alpaca_local.stream: alpaca_local.stream: stream_ready_event set - all streams running
+2026-04-08 12:51:39 INFO     main: step 5: stream_ready_event received ? all 5 streams live
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: started data stream
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: starting data websocket connection
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connecting to wss://stream.data.alpaca.markets/v2/iex
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: started data stream
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: started data stream
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: starting data websocket connection
+2026-04-08 12:51:39 INFO     agents.account_agent: account_agent: starting
+2026-04-08 12:51:39 INFO     agents.signal_generator: signal_generator: starting
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: starting data websocket connection
+2026-04-08 12:51:39 INFO     agents.plan_manager: plan_manager: starting
+2026-04-08 12:51:39 INFO     agents.diagnostics: diagnostics: starting
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connecting to wss://stream.data.alpaca.markets/v1beta1/indicative
+2026-04-08 12:51:39 INFO     main: step 6: account_agent / diagnostics / signal_generator / plan_manager started
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: started data stream
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connecting to wss://stream.data.alpaca.markets/v1beta3/crypto/us
+2026-04-08 12:51:39 INFO     agents.plan_manager: plan_manager: loaded plan v0 with 2 symbols | stance=risk-on
+2026-04-08 12:51:39 INFO     main: step 6: waiting for account_ready_event
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: starting data websocket connection
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connecting to wss://stream.data.alpaca.markets/v1beta1/news
+2026-04-08 12:51:39 INFO     agents.plan_manager: plan_manager: saved plan v27 | trigger=scheduled_refresh | ref refresh: 1 changes
+2026-04-08 12:51:39 INFO     agents.plan_manager: plan_manager: scheduled refresh — 1 adjustments
+2026-04-08 12:51:39 INFO     agents.account_agent: account_agent: account_ready_event set
+2026-04-08 12:51:39 INFO     main: step 6: account_ready_event received - positions populated
+2026-04-08 12:51:39 INFO     agents.boss: boss: starting
+2026-04-08 12:51:39 INFO     agents.risk_manager: risk_manager: starting
+2026-04-08 12:51:39 INFO     agents.order_execution: order_exec: starting
+2026-04-08 12:51:39 INFO     main: step 7: boss / risk_manager / order_execution started
+2026-04-08 12:51:39 INFO     main: all agents running ? bot is live
+2026-04-08 12:51:39 INFO     alpaca.trading.stream: connected to: BaseURL.TRADING_STREAM_PAPER
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connected to wss://stream.data.alpaca.markets/v2/iex
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connected to wss://stream.data.alpaca.markets/v1beta3/crypto/us
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connected to wss://stream.data.alpaca.markets/v1beta1/news
+2026-04-08 12:51:39 INFO     alpaca.data.live.websocket: connected to wss://stream.data.alpaca.markets/v1beta1/indicative
+2026-04-08 12:51:40 INFO     alpaca.data.live.websocket: subscribed to bars: ['BTC/USD', 'ETH/USD', 'PAXG/USD']
+2026-04-08 12:51:40 INFO     alpaca.data.live.websocket: subscribed to bars: ['*']
+2026-04-08 12:51:40 INFO     alpaca.data.live.websocket: subscribed to news: ['*']
+2026-04-08 12:51:40 ERROR    alpaca.data.live.websocket: error: symbol limit exceeded (405)
+2026-04-08 12:51:40 INFO     agents.order_execution: order_exec: pre-populated 0 open orders into pending set
+2026-04-08 12:51:40 INFO     agents.order_execution: order_exec: rebalance buy PAXG/USD gap=+13.4% notional=$10000
+2026-04-08 12:51:40 INFO     agents.boss: boss: market opened ? fetched 0 watchlists
+2026-04-08 12:51:40 INFO     agents.order_execution: order submitted: buy PAXG/USD attempt=1
+2026-04-08 12:51:40 INFO     agents.order_execution: fill: OrderSide.BUY 0.0 PAXG/USD @ 0.0000
+2026-04-08 12:51:40 INFO     agents.order_execution: fill: OrderSide.BUY 0.0 PAXG/USD @ 0.0000
+2026-04-08 12:51:40 INFO     agents.order_execution: fill: OrderSide.BUY 9.38e-05 PAXG/USD @ 4713.6900
+2026-04-08 12:51:40 INFO     agents.order_execution: fill: OrderSide.BUY 2.062845665 PAXG/USD @ 4752.5282
+2026-04-08 12:52:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 64s
+2026-04-08 12:52:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 69s
+2026-04-08 12:52:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 74s
+2026-04-08 12:52:54 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 62s
+2026-04-08 12:52:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 79s
+2026-04-08 12:52:59 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 67s
+2026-04-08 12:53:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 84s
+2026-04-08 12:53:04 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 72s
+2026-04-08 12:53:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 89s
+2026-04-08 12:53:09 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 77s
+2026-04-08 12:53:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 94s
+2026-04-08 12:53:14 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 82s
+2026-04-08 12:53:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 99s
+2026-04-08 12:53:19 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 87s
+2026-04-08 12:53:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 104s
+2026-04-08 12:53:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 109s
+2026-04-08 12:53:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 114s
+2026-04-08 12:53:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 119s
+2026-04-08 12:53:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 124s
+2026-04-08 12:53:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 129s
+2026-04-08 12:53:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 134s
+2026-04-08 12:53:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 139s
+2026-04-08 12:54:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 144s
+2026-04-08 12:54:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 149s
+2026-04-08 12:54:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 154s
+2026-04-08 12:54:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 159s
+2026-04-08 12:54:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 164s
+2026-04-08 12:54:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 169s
+2026-04-08 12:54:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 174s
+2026-04-08 12:54:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 179s
+2026-04-08 12:54:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 184s
+2026-04-08 12:54:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 189s
+2026-04-08 12:54:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 194s
+2026-04-08 12:54:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 199s
+2026-04-08 12:55:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 204s
+2026-04-08 12:55:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 209s
+2026-04-08 12:55:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 214s
+2026-04-08 12:55:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 219s
+2026-04-08 12:55:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 224s
+2026-04-08 12:55:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 229s
+2026-04-08 12:55:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 234s
+2026-04-08 12:55:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 239s
+2026-04-08 12:55:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 244s
+2026-04-08 12:55:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 249s
+2026-04-08 12:55:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 254s
+2026-04-08 12:55:54 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 62s
+2026-04-08 12:55:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 259s
+2026-04-08 12:55:59 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 67s
+2026-04-08 12:56:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 264s
+2026-04-08 12:56:04 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 72s
+2026-04-08 12:56:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 269s
+2026-04-08 12:56:09 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 77s
+2026-04-08 12:56:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 274s
+2026-04-08 12:56:14 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 82s
+2026-04-08 12:56:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 279s
+2026-04-08 12:56:19 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 87s
+2026-04-08 12:56:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 284s
+2026-04-08 12:56:24 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 92s
+2026-04-08 12:56:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 289s
+2026-04-08 12:56:29 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 97s
+2026-04-08 12:56:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 294s
+2026-04-08 12:56:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 299s
+2026-04-08 12:56:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 304s
+2026-04-08 12:56:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 309s
+2026-04-08 12:56:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 314s
+2026-04-08 12:56:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 319s
+2026-04-08 12:57:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 324s
+2026-04-08 12:57:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 329s
+2026-04-08 12:57:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 334s
+2026-04-08 12:57:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 339s
+2026-04-08 12:57:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 344s
+2026-04-08 12:57:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 349s
+2026-04-08 12:57:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 354s
+2026-04-08 12:57:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 359s
+2026-04-08 12:57:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 365s
+2026-04-08 12:57:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 370s
+2026-04-08 12:57:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 375s
+2026-04-08 12:57:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 380s
+2026-04-08 12:58:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 385s
+2026-04-08 12:58:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 390s
+2026-04-08 12:58:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 395s
+2026-04-08 12:58:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 400s
+2026-04-08 12:58:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 405s
+2026-04-08 12:58:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 410s
+2026-04-08 12:58:29 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 61s
+2026-04-08 12:58:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 415s
+2026-04-08 12:58:34 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 66s
+2026-04-08 12:58:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 420s
+2026-04-08 12:58:39 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 71s
+2026-04-08 12:58:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 425s
+2026-04-08 12:58:44 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 76s
+2026-04-08 12:58:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 430s
+2026-04-08 12:58:49 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 81s
+2026-04-08 12:58:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 435s
+2026-04-08 12:58:54 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 86s
+2026-04-08 12:58:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 440s
+2026-04-08 12:58:59 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 91s
+2026-04-08 12:59:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 445s
+2026-04-08 12:59:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 450s
+2026-04-08 12:59:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 455s
+2026-04-08 12:59:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 460s
+2026-04-08 12:59:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 465s
+2026-04-08 12:59:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 470s
+2026-04-08 12:59:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 475s
+2026-04-08 12:59:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 480s
+2026-04-08 12:59:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 485s
+2026-04-08 12:59:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 490s
+2026-04-08 12:59:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 495s
+2026-04-08 12:59:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 500s
+2026-04-08 13:00:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 505s
+2026-04-08 13:00:04 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 62s
+2026-04-08 13:00:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 510s
+2026-04-08 13:00:09 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 67s
+2026-04-08 13:00:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 515s
+2026-04-08 13:00:14 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 72s
+2026-04-08 13:00:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 520s
+2026-04-08 13:00:19 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 77s
+2026-04-08 13:00:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 525s
+2026-04-08 13:00:24 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 82s
+2026-04-08 13:00:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 530s
+2026-04-08 13:00:29 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 87s
+2026-04-08 13:00:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 535s
+2026-04-08 13:00:34 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 92s
+2026-04-08 13:00:39 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 540s
+2026-04-08 13:00:39 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 97s
+2026-04-08 13:00:44 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 545s
+2026-04-08 13:00:44 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 102s
+2026-04-08 13:00:49 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 550s
+2026-04-08 13:00:49 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 107s
+2026-04-08 13:00:54 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 555s
+2026-04-08 13:00:54 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 112s
+2026-04-08 13:00:59 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 560s
+2026-04-08 13:00:59 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 117s
+2026-04-08 13:01:04 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 565s
+2026-04-08 13:01:04 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 122s
+2026-04-08 13:01:09 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 570s
+2026-04-08 13:01:09 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 127s
+2026-04-08 13:01:14 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 575s
+2026-04-08 13:01:14 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 132s
+2026-04-08 13:01:19 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 580s
+2026-04-08 13:01:19 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 137s
+2026-04-08 13:01:24 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 585s
+2026-04-08 13:01:24 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 142s
+2026-04-08 13:01:29 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 590s
+2026-04-08 13:01:29 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 147s
+2026-04-08 13:01:34 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 595s
+2026-04-08 13:01:34 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 152s
+2026-04-08 13:01:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 600s
+2026-04-08 13:01:40 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 157s
+2026-04-08 13:01:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 605s
+2026-04-08 13:01:45 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 162s
+2026-04-08 13:01:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 610s
+2026-04-08 13:01:50 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 167s
+2026-04-08 13:01:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 615s
+2026-04-08 13:01:55 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 172s
+2026-04-08 13:02:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 620s
+2026-04-08 13:02:00 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 177s
+2026-04-08 13:02:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 625s
+2026-04-08 13:02:05 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 182s
+2026-04-08 13:02:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 630s
+2026-04-08 13:02:10 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 187s
+2026-04-08 13:02:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 635s
+2026-04-08 13:02:15 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 192s
+2026-04-08 13:02:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 640s
+2026-04-08 13:02:20 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 197s
+2026-04-08 13:02:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 645s
+2026-04-08 13:02:25 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 202s
+2026-04-08 13:02:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 650s
+2026-04-08 13:02:30 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 207s
+2026-04-08 13:02:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 655s
+2026-04-08 13:02:35 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 212s
+2026-04-08 13:02:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 660s
+2026-04-08 13:02:40 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 217s
+2026-04-08 13:02:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 665s
+2026-04-08 13:02:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 670s
+2026-04-08 13:02:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 675s
+2026-04-08 13:03:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 680s
+2026-04-08 13:03:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 685s
+2026-04-08 13:03:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 690s
+2026-04-08 13:03:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 695s
+2026-04-08 13:03:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 700s
+2026-04-08 13:03:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 705s
+2026-04-08 13:03:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 710s
+2026-04-08 13:03:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 715s
+2026-04-08 13:03:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 720s
+2026-04-08 13:03:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 725s
+2026-04-08 13:03:45 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 64s
+2026-04-08 13:03:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 730s
+2026-04-08 13:03:50 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 69s
+2026-04-08 13:03:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 735s
+2026-04-08 13:03:55 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 74s
+2026-04-08 13:04:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 740s
+2026-04-08 13:04:00 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 79s
+2026-04-08 13:04:00 WARNING  agents.diagnostics: diagnostics: stream 'stock' silent for 60s
+2026-04-08 13:04:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 745s
+2026-04-08 13:04:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 750s
+2026-04-08 13:04:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 755s
+2026-04-08 13:04:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 760s
+2026-04-08 13:04:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 765s
+2026-04-08 13:04:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 770s
+2026-04-08 13:04:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 775s
+2026-04-08 13:04:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 780s
+2026-04-08 13:04:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 785s
+2026-04-08 13:04:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 790s
+2026-04-08 13:04:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 795s
+2026-04-08 13:05:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 800s
+2026-04-08 13:05:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 805s
+2026-04-08 13:05:05 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 60s
+2026-04-08 13:05:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 810s
+2026-04-08 13:05:10 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 65s
+2026-04-08 13:05:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 815s
+2026-04-08 13:05:15 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 70s
+2026-04-08 13:05:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 820s
+2026-04-08 13:05:20 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 75s
+2026-04-08 13:05:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 825s
+2026-04-08 13:05:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 830s
+2026-04-08 13:05:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 835s
+2026-04-08 13:05:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 840s
+2026-04-08 13:05:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 845s
+2026-04-08 13:05:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 850s
+2026-04-08 13:05:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 855s
+2026-04-08 13:06:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 860s
+2026-04-08 13:06:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 865s
+2026-04-08 13:06:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 870s
+2026-04-08 13:06:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 875s
+2026-04-08 13:06:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 880s
+2026-04-08 13:06:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 885s
+2026-04-08 13:06:25 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 60s
+2026-04-08 13:06:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 890s
+2026-04-08 13:06:30 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 65s
+2026-04-08 13:06:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 895s
+2026-04-08 13:06:35 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 70s
+2026-04-08 13:06:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 900s
+2026-04-08 13:06:40 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 76s
+2026-04-08 13:06:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 905s
+2026-04-08 13:06:45 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 81s
+2026-04-08 13:06:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 910s
+2026-04-08 13:06:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 915s
+2026-04-08 13:07:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 920s
+2026-04-08 13:07:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 925s
+2026-04-08 13:07:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 930s
+2026-04-08 13:07:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 935s
+2026-04-08 13:07:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 940s
+2026-04-08 13:07:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 945s
+2026-04-08 13:07:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 950s
+2026-04-08 13:07:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 955s
+2026-04-08 13:07:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 960s
+2026-04-08 13:07:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 965s
+2026-04-08 13:07:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 970s
+2026-04-08 13:07:50 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 62s
+2026-04-08 13:07:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 975s
+2026-04-08 13:07:55 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 67s
+2026-04-08 13:08:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 980s
+2026-04-08 13:08:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 985s
+2026-04-08 13:08:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 990s
+2026-04-08 13:08:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 995s
+2026-04-08 13:08:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1000s
+2026-04-08 13:08:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1005s
+2026-04-08 13:08:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1010s
+2026-04-08 13:08:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1015s
+2026-04-08 13:08:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1020s
+2026-04-08 13:08:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1025s
+2026-04-08 13:08:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1030s
+2026-04-08 13:08:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1035s
+2026-04-08 13:09:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1040s
+2026-04-08 13:09:00 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 60s
+2026-04-08 13:09:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1045s
+2026-04-08 13:09:05 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 65s
+2026-04-08 13:09:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1050s
+2026-04-08 13:09:10 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 70s
+2026-04-08 13:09:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1055s
+2026-04-08 13:09:15 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 75s
+2026-04-08 13:09:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1060s
+2026-04-08 13:09:20 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 80s
+2026-04-08 13:09:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1065s
+2026-04-08 13:09:25 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 85s
+2026-04-08 13:09:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1070s
+2026-04-08 13:09:30 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 90s
+2026-04-08 13:09:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1075s
+2026-04-08 13:09:35 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 95s
+2026-04-08 13:09:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1080s
+2026-04-08 13:09:40 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 100s
+2026-04-08 13:09:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1085s
+2026-04-08 13:09:45 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 105s
+2026-04-08 13:09:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1090s
+2026-04-08 13:09:50 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 110s
+2026-04-08 13:09:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1095s
+2026-04-08 13:09:55 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 115s
+2026-04-08 13:10:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1100s
+2026-04-08 13:10:00 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 120s
+2026-04-08 13:10:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1105s
+2026-04-08 13:10:05 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 125s
+2026-04-08 13:10:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1110s
+2026-04-08 13:10:10 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 130s
+2026-04-08 13:10:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1115s
+2026-04-08 13:10:15 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 135s
+2026-04-08 13:10:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1120s
+2026-04-08 13:10:20 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 140s
+2026-04-08 13:10:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1125s
+2026-04-08 13:10:25 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 145s
+2026-04-08 13:10:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1130s
+2026-04-08 13:10:30 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 150s
+2026-04-08 13:10:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1135s
+2026-04-08 13:10:35 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 155s
+2026-04-08 13:10:40 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1140s
+2026-04-08 13:10:40 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 160s
+2026-04-08 13:10:45 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1145s
+2026-04-08 13:10:45 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 165s
+2026-04-08 13:10:50 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1150s
+2026-04-08 13:10:50 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 170s
+2026-04-08 13:10:55 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1155s
+2026-04-08 13:10:55 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 175s
+2026-04-08 13:11:00 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1160s
+2026-04-08 13:11:00 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 180s
+2026-04-08 13:11:05 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1165s
+2026-04-08 13:11:05 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 185s
+2026-04-08 13:11:10 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1170s
+2026-04-08 13:11:10 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 190s
+2026-04-08 13:11:15 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1175s
+2026-04-08 13:11:15 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 195s
+2026-04-08 13:11:20 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1180s
+2026-04-08 13:11:20 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 200s
+2026-04-08 13:11:25 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1185s
+2026-04-08 13:11:25 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 205s
+2026-04-08 13:11:30 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1190s
+2026-04-08 13:11:30 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 210s
+2026-04-08 13:11:35 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1195s
+2026-04-08 13:11:35 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 215s
+2026-04-08 13:11:41 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1201s
+2026-04-08 13:11:41 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 221s
+2026-04-08 13:11:46 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1206s
+2026-04-08 13:11:46 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 226s
+2026-04-08 13:11:51 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1211s
+2026-04-08 13:11:51 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 231s
+2026-04-08 13:11:56 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1216s
+2026-04-08 13:11:56 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 236s
+2026-04-08 13:12:01 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1221s
+2026-04-08 13:12:01 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 241s
+2026-04-08 13:12:06 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1226s
+2026-04-08 13:12:06 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 246s
+2026-04-08 13:12:11 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1231s
+2026-04-08 13:12:11 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 251s
+2026-04-08 13:12:16 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1236s
+2026-04-08 13:12:16 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 256s
+2026-04-08 13:12:21 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1241s
+2026-04-08 13:12:21 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 261s
+2026-04-08 13:12:26 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1246s
+2026-04-08 13:12:26 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 266s
+2026-04-08 13:12:31 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1251s
+2026-04-08 13:12:31 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 271s
+2026-04-08 13:12:36 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1256s
+2026-04-08 13:12:36 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 276s
+2026-04-08 13:12:41 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1261s
+2026-04-08 13:12:41 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 281s
+2026-04-08 13:12:46 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1266s
+2026-04-08 13:12:46 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 286s
+2026-04-08 13:12:51 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1271s
+2026-04-08 13:12:51 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 291s
+2026-04-08 13:12:56 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1276s
+2026-04-08 13:12:56 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 296s
+2026-04-08 13:13:01 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1281s
+2026-04-08 13:13:01 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 301s
+2026-04-08 13:13:06 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1286s
+2026-04-08 13:13:06 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 306s
+2026-04-08 13:13:11 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1291s
+2026-04-08 13:13:11 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 311s
+2026-04-08 13:13:16 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1296s
+2026-04-08 13:13:16 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 316s
+2026-04-08 13:13:21 WARNING  agents.diagnostics: diagnostics: stream 'trade' silent for 1301s
+2026-04-08 13:13:21 WARNING  agents.diagnostics: diagnostics: stream 'news' silent for 321s
+2026-04-08 13:13:23 INFO     main: main: received signal 2 ? initiating graceful shutdown
+2026-04-08 13:13:23 INFO     main: main: waiting for all threads to exit
+2026-04-08 13:13:24 INFO     agents.boss: boss: SHUTTING_DOWN ? exiting
+2026-04-08 13:13:24 INFO     main: main: received signal 2 ? initiating graceful shutdown
+2026-04-08 13:13:25 INFO     agents.order_execution: order_exec: cancelling all open orders on shutdown
+2026-04-08 13:13:25 INFO     agents.order_execution: order_exec: cancel-all sent
+2026-04-08 13:13:26 INFO     agents.diagnostics: diagnostics: SHUTTING_DOWN ? exiting
+2026-04-08 13:13:26 INFO     main: main: received signal 2 ? initiating graceful shutdown
+2026-04-08 13:13:26 INFO     agents.account_agent: account_agent: SHUTTING_DOWN ? exiting
+2026-04-08 13:13:26 INFO     agents.signal_generator: signal_generator: SHUTTING_DOWN - exiting
+^C
