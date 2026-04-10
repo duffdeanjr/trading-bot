@@ -1351,48 +1351,69 @@ function renderDistribution(outcomes) {
 }
 
 function renderStrategyPerf(trades) {
-  // Group by strategy
+  // Filter real trades and group by strategy
+  const real = trades.filter(t => (t.qty || 0) > 0 && (t.notional || 0) > 0);
   const strats = {};
-  trades.forEach(t => {
+  real.forEach(t => {
     const s = t.strategy_tag || t.strategy || 'unknown';
-    if (!strats[s]) strats[s] = { pnl: 0, count: 0 };
-    strats[s].pnl += (t.pnl || 0);
+    if (!strats[s]) strats[s] = { notional: 0, count: 0 };
+    strats[s].notional += (t.notional || 0);
     strats[s].count++;
   });
-  const sorted = Object.entries(strats).sort((a, b) => b[1].pnl - a[1].pnl);
-  const maxPnl = Math.max(...sorted.map(([, v]) => Math.abs(v.pnl)), 1);
+  const sorted = Object.entries(strats).sort((a, b) => b[1].notional - a[1].notional);
+  const maxNotional = Math.max(...sorted.map(([, v]) => v.notional), 1);
 
-  $('stratPerf').innerHTML = sorted.map(([name, v]) => `
-    <div style="margin-bottom:10px;">
+  const stratColors = {
+    target_rebalance: '#00ff88', cash_secured_put: '#e879f9', iron_condor: '#ffaa00',
+    covered_call: '#00c8ff', calendar_spread: '#a78bfa', macd_cross: '#00c8ff',
+    rsi_oversold: '#00ff88', bb_bounce: '#a78bfa', review_discovery: '#66d9ef', unknown: '#666',
+  };
+
+  $('stratPerf').innerHTML = sorted.length > 0 ? sorted.map(([name, v]) => {
+    const color = stratColors[name] || '#666';
+    return `<div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <span style="color:var(--text-2);font-size:12px;">${name}</span>
+        <span style="color:${color};font-size:12px;font-weight:500;">${name}</span>
         <div style="display:flex;gap:8px;">
           <span style="color:var(--text-4);font-size:12px;">${v.count} trades</span>
-          <span class="${pnlClass(v.pnl)}" style="font-size:12px;">${fmtPnl(v.pnl)}</span>
+          <span style="color:var(--text-2);font-size:12px;">$${v.notional.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
         </div>
       </div>
-      <div class="prog-track"><div class="prog-fill" style="width:${(Math.abs(v.pnl)/maxPnl*100).toFixed(0)}%;background:${v.pnl >= 0 ? 'var(--green)' : 'var(--red)'};"></div></div>
-    </div>
-  `).join('') || '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No closed trades yet</div>';
+      <div class="prog-track"><div class="prog-fill" style="width:${(v.notional/maxNotional*100).toFixed(0)}%;background:${color};opacity:0.7;"></div></div>
+    </div>`;
+  }).join('') : '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No trades yet</div>';
 }
 
 function renderStrategyMix(trades) {
+  // Filter real trades
+  const real = trades.filter(t => (t.qty || 0) > 0 && (t.notional || 0) > 0);
   const strats = {};
-  trades.forEach(t => {
+  real.forEach(t => {
     const s = t.strategy_tag || t.strategy || 'unknown';
     strats[s] = (strats[s] || 0) + 1;
   });
   const total = Object.values(strats).reduce((a, b) => a + b, 0) || 1;
-  const colors = ['#00ff88', '#00c8ff', '#a78bfa', '#ff4466', '#ffaa00'];
-  const segments = Object.entries(strats).sort((a, b) => b[1] - a[1]).map(([name, count], i) => ({
+
+  const stratColors = {
+    target_rebalance: '#00ff88', cash_secured_put: '#e879f9', iron_condor: '#ffaa00',
+    covered_call: '#00c8ff', calendar_spread: '#a78bfa', macd_cross: '#00c8ff',
+    rsi_oversold: '#00ff88', bb_bounce: '#a78bfa', review_discovery: '#66d9ef', unknown: '#666',
+  };
+
+  const segments = Object.entries(strats).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({
     pct: (count / total) * 100,
-    color: colors[i % colors.length],
+    color: stratColors[name] || '#666',
     label: name
   }));
 
+  if (segments.length === 0) {
+    $('stratLegend').innerHTML = '<div style="color:var(--text-4);font-size:12px;">No trades yet</div>';
+    return;
+  }
+
   drawDonut($('chartStratMix'), segments, 90);
   $('stratLegend').innerHTML = segments.map(s =>
-    `<div class="donut-legend-item"><div class="donut-swatch" style="background:${s.color}"></div><span style="color:var(--text-2)">${s.label} ${Math.round(s.pct)}%</span></div>`
+    `<div class="donut-legend-item"><div class="donut-swatch" style="background:${s.color}"></div><span style="color:var(--text-2);font-size:12px;">${s.label} ${Math.round(s.pct)}%</span></div>`
   ).join('');
 }
 
