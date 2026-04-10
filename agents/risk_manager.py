@@ -299,6 +299,62 @@ def _check_stop_loss(signal: dict) -> tuple:
                      f"-- consider adding ATR-based stop")
     return True, ""
 
+# -- options buying power check --
+def _check_options_buying_power(signal: dict) -> tuple:
+    """Check if we have enough options buying power for the trade."""
+    strategy = signal.get("strategy", "")
+    options_strategies = {"iron_condor", "covered_call", "cash_secured_put", "calendar_spread"}
+    if strategy not in options_strategies:
+        return True, ""
+
+    with shared.account_lock:
+        acct = shared.account
+    if acct is None:
+        return False, "no account data"
+
+    try:
+        opt_bp = float(getattr(acct, "options_buying_power", 0) or 0)
+    except Exception:
+        opt_bp = 0.0
+
+    if opt_bp <= 0:
+        return False, f"options buying power is ${opt_bp:.0f} — no capacity"
+
+    # Estimate capital required
+    qty = int(signal.get("qty", 1) or 1)
+    if strategy == "cash_secured_put":
+        # CSP requires strike × 100 × qty
+        strike = float(signal.get("strike_price", 0) or 0)
+        if strike <= 0:
+            # Parse from option symbol (e.g. AAPL260424P00247500 -> 247.5)
+            sym = signal.get("symbol", "")
+            if len(sym) > 15:
+                try:
+                    strike = int(sym[-8:]) / 1000
+                except Exception:
+                    strike = 0
+        required = strike * 100 * qty
+    elif strategy == "iron_condor":
+        # IC max loss = wing width × 100 × qty (approximate)
+        required = settings.MAX_POSITION_SIZE * 0.5 * qty
+    elif strategy == "covered_call":
+        # Covered call: no additional capital needed (already hold shares)
+        return True, ""
+    elif strategy == "calendar_spread":
+        # Debit spread: max loss = net debit (estimate conservatively)
+        required = settings.MAX_POSITION_SIZE * 0.3 * qty
+    else:
+        required = settings.MAX_POSITION_SIZE
+
+    if required > opt_bp:
+        return False, (
+            f"options buying power ${opt_bp:,.0f} < required ${required:,.0f} "
+            f"for {strategy} ({signal.get('symbol', '')})"
+        )
+
+    return True, ""
+
+
 # -- main veto function --
 def approve(signal: dict) -> tuple:
     """
@@ -321,6 +377,7 @@ def approve(signal: dict) -> tuple:
         _check_options_level(strategy),
         _check_naked_short(signal),
         _check_options_expiry_risk(signal),
+        _check_options_buying_power(signal),
         _check_portfolio_heat(side),
         _check_stop_loss(signal),
     ]

@@ -102,8 +102,9 @@ def place_order(signal: dict):
         return
     _add_pending(symbol, side, strategy_tag)
 
-    # Build client_order_id: "strategy_tag::timestamp"
-    coid = f"{strategy_tag}::{int(time.time())}"
+    # Build client_order_id: "strategy_tag::timestamp::random" (unique per order)
+    import random
+    coid = f"{strategy_tag}::{int(time.time())}::{random.randint(1000,9999)}"
 
     # Build order request
     try:

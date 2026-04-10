@@ -123,6 +123,26 @@ def iron_condor(symbol: str, underlying_price: float,
         logger.debug(f"iron_condor: could not build all legs for {symbol}")
         return None
 
+    short_call_strike = float(_get_attr(short_call, 'strike_price', 0))
+    long_call_strike  = float(_get_attr(long_call, 'strike_price', 0))
+    short_put_strike  = float(_get_attr(short_put, 'strike_price', 0))
+    long_put_strike   = float(_get_attr(long_put, 'strike_price', 0))
+
+    # Max loss = wider wing width × 100
+    call_width = abs(long_call_strike - short_call_strike)
+    put_width  = abs(short_put_strike - long_put_strike)
+    max_loss_per_contract = max(call_width, put_width) * 100
+
+    # Size by buying power
+    opt_bp = _get_options_buying_power()
+    if opt_bp < max_loss_per_contract:
+        logger.debug(f"options: IC {symbol} needs ${max_loss_per_contract:,.0f}, "
+                     f"only ${opt_bp:,.0f} available — skipping")
+        return None
+
+    max_contracts = max(1, int((opt_bp * 0.40) / max_loss_per_contract))
+    qty = min(qty, max_contracts)
+
     legs = [
         {"symbol": short_call.symbol, "side": "sell", "ratio_qty": 1, "position_intent": "sell_to_open"},
         {"symbol": long_call.symbol,  "side": "buy",  "ratio_qty": 1, "position_intent": "buy_to_open"},
@@ -131,8 +151,9 @@ def iron_condor(symbol: str, underlying_price: float,
     ]
 
     logger.info(f"options: iron_condor {symbol} @ {underlying_price:.2f} "
-                f"call_spread={getattr(short_call,'strike_price',0)}/{getattr(long_call,'strike_price',0)} "
-                f"put_spread={getattr(short_put,'strike_price',0)}/{getattr(long_put,'strike_price',0)}")
+                f"call={short_call_strike}/{long_call_strike} "
+                f"put={short_put_strike}/{long_put_strike} "
+                f"qty={qty} max_loss=${max_loss_per_contract * qty:,.0f} bp=${opt_bp:,.0f}")
 
     return {
         "symbol":      symbol,
@@ -175,12 +196,25 @@ def covered_call(symbol: str, underlying_price: float,
     }
 
 
+def _get_options_buying_power() -> float:
+    """Get current options buying power from account."""
+    with shared.account_lock:
+        acct = shared.account
+    if acct is None:
+        return 0.0
+    try:
+        return float(getattr(acct, "options_buying_power", 0) or 0)
+    except Exception:
+        return 0.0
+
+
 def cash_secured_put(symbol: str, underlying_price: float,
                      qty: int = 1, otm_pct: float = 0.05) -> dict:
     """
     Cash-secured put: sell OTM put to either collect premium
     or acquire the stock at a discount.
     Best for high-conviction stocks you want to own.
+    Automatically sizes position by available options buying power.
     """
     contracts = _get_options_chain(symbol)
     if not contracts:
@@ -194,15 +228,32 @@ def cash_secured_put(symbol: str, underlying_price: float,
     if not put:
         return None
 
-    strike = float(getattr(put, 'strike_price', 0))
-    logger.info(f"options: cash_secured_put {symbol} sell put @ {strike:.2f}")
+    strike = float(_get_attr(put, 'strike_price', 0))
+    if strike <= 0:
+        return None
+
+    # Size by buying power: CSP requires strike × 100 per contract
+    opt_bp = _get_options_buying_power()
+    capital_per_contract = strike * 100
+    if opt_bp < capital_per_contract:
+        logger.debug(f"options: CSP {symbol} needs ${capital_per_contract:,.0f}, "
+                     f"only ${opt_bp:,.0f} available — skipping")
+        return None
+
+    # Use at most 40% of options BP per single CSP, min 1 contract
+    max_contracts = max(1, int((opt_bp * 0.40) / capital_per_contract))
+    qty = min(qty, max_contracts)
+
+    logger.info(f"options: cash_secured_put {symbol} sell {qty}x put @ {strike:.2f} "
+                f"(requires ${capital_per_contract * qty:,.0f}, bp=${opt_bp:,.0f})")
 
     return {
-        "symbol":      put.symbol,
-        "side":        "sell",
-        "qty":         qty,
-        "strategy":    "cash_secured_put",
-        "order_class": "simple",
+        "symbol":       put.symbol,
+        "side":         "sell",
+        "qty":          qty,
+        "strike_price": strike,
+        "strategy":     "cash_secured_put",
+        "order_class":  "simple",
     }
 
 
