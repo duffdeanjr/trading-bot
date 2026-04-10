@@ -113,8 +113,20 @@ def _build_ohlcv(symbol: str) -> dict:
     """Extract OHLCV arrays from historical cache for indicator computation."""
     with shared.cache_lock:
         hist = shared.historical_ohlcv.get(symbol, {})
-    if isinstance(hist, dict):
+    if isinstance(hist, dict) and "closes" in hist:
         return hist
+    if isinstance(hist, list):
+        result = {"closes": [], "highs": [], "lows": [], "opens": [], "volumes": []}
+        for b in hist:
+            try:
+                result["closes"].append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
+                result["highs"].append(float(getattr(b, "high", getattr(b, "h", 0)) or 0))
+                result["lows"].append(float(getattr(b, "low", getattr(b, "l", 0)) or 0))
+                result["opens"].append(float(getattr(b, "open", getattr(b, "o", 0)) or 0))
+                result["volumes"].append(float(getattr(b, "volume", getattr(b, "v", 0)) or 0))
+            except Exception:
+                continue
+        return result
     return {}
 
 def _emit_equity_signals(symbols: list) -> list:

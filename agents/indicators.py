@@ -37,7 +37,9 @@ def macd(closes: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
     ema_fast = ema(closes, fast)
     ema_slow = ema(closes, slow)
     min_len = min(len(ema_fast), len(ema_slow))
-    macd_line = [ema_fast[-(min_len-i)] - ema_slow[-(min_len-i)] for i in range(min_len)]
+    if min_len == 0:
+        return None
+    macd_line = [ema_fast[i] - ema_slow[i] for i in range(-min_len, 0)]
     if len(macd_line) < signal:
         return None
     sig_line = ema(macd_line, signal)

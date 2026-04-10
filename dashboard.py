@@ -10,15 +10,29 @@ from config import settings
 _BASE = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = os.path.join(_BASE, "dashboard.html")
 
-# ── Try to import shared state (only works when bot is running) ──
+# Try to import shared state (only works when bot is running)
 try:
     import shared
     HAS_BOT = True
 except ImportError:
     HAS_BOT = False
 
+def _get_market_open():
+    try:
+        from alpaca_local import client as alpaca
+        clock = alpaca.get_clock()
+        return clock.is_open
+    except Exception:
+        return getattr(shared, "MARKET_OPEN", False) if HAS_BOT else False
+
+def _db_path():
+    p = settings.DB_PATH
+    if not os.path.isabs(p):
+        return os.path.join(_BASE, p)
+    return p
+
 def query(sql, params=()):
-    conn = sqlite3.connect(settings.DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(sql, params).fetchall()
@@ -27,7 +41,7 @@ def query(sql, params=()):
         conn.close()
 
 def query_one(sql, params=()):
-    conn = sqlite3.connect(settings.DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
     try:
         r = conn.execute(sql, params).fetchone()
@@ -38,7 +52,7 @@ def query_one(sql, params=()):
 def api_data():
     trades_summary = query_one("SELECT COUNT(*) as n, SUM(notional) as vol FROM trades")
     positions = query("""
-        SELECT symbol, MAX(ts) as ts, qty, avg_cost, market_val, unrealised
+        SELECT symbol, MAX(ts) as ts, qty, avg_cost, market_val, unrealised, asset_class
         FROM positions GROUP BY symbol ORDER BY ABS(COALESCE(market_val,0)) DESC LIMIT 20
     """)
     recent_trades = query("SELECT ts,symbol,side,qty,price,notional,strategy_tag FROM trades ORDER BY ts DESC LIMIT 20")
@@ -47,6 +61,7 @@ def api_data():
     signals = query("SELECT ts,symbol,strategy,side,confidence,sentiment FROM signals ORDER BY ts DESC LIMIT 20")
     outcomes = query("SELECT symbol,strategy,side,pnl,pnl_pct,status FROM outcomes ORDER BY COALESCE(exit_ts, entry_ts) DESC LIMIT 20")
     scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
+    plan_history = query("SELECT version, ts, trigger, summary FROM investment_plans ORDER BY version DESC LIMIT 10")
 
     plan_data = {}
     if plan_row and plan_row.get("plan_json"):
@@ -55,63 +70,114 @@ def api_data():
         except Exception:
             pass
 
-    # ── Enrich with live shared state when bot is running ──
     account_data = {}
     agent_status = []
     trading_paused = False
+    heat_status = {}
+
     if HAS_BOT:
-        # Account
-        with shared.account_lock:
-            acct = shared.account
-        if acct:
-            for key in ("portfolio_value", "buying_power", "cash", "equity",
-                        "last_equity", "long_market_value", "short_market_value"):
-                val = acct.get(key) if isinstance(acct, dict) else getattr(acct, key, None)
-                if val is not None:
-                    account_data[key] = str(val)
+        # Account — pull directly from Alpaca (dashboard is a separate process)
+        try:
+            from alpaca_local import client as alpaca
+            acct = alpaca.get_account()
+            if acct:
+                for key in ("portfolio_value", "buying_power", "cash", "equity",
+                            "last_equity", "long_market_value", "short_market_value"):
+                    val = getattr(acct, key, None)
+                    if val is not None:
+                        account_data[key] = str(val)
+        except Exception:
+            pass
 
         # Agent health
-        with shared.errors_lock:
-            errs = dict(shared.AGENT_ERRORS)
-        for name in ["ref_library", "account_agent", "signal_generator",
-                      "plan_manager", "order_execution", "risk_manager",
-                      "boss", "diagnostics"]:
-            info = errs.get(name, {})
+        try:
+            with shared.errors_lock:
+                errors_snap = dict(shared.AGENT_ERRORS)
+        except Exception:
+            errors_snap = {}
+        agent_names = ["ref_library", "account_agent", "signal_generator",
+                       "plan_manager", "order_execution", "risk_manager",
+                       "boss", "diagnostics"]
+        now = time.time()
+        for name in agent_names:
+            info = errors_snap.get(name, {})
+            try:
+                hb_ts = getattr(shared, 'AGENT_HEARTBEATS', {}).get(name, 0)
+            except Exception:
+                hb_ts = 0
+            hb_age = round(now - hb_ts, 1) if hb_ts > 0 else None
+            status = "running"
+            if info.get("count", 0) > 0:
+                status = "error"
+            elif hb_ts > 0 and (now - hb_ts) > 120:
+                status = "stale"
             agent_status.append({
                 "name": name,
-                "status": "error" if info.get("count", 0) > 0 else "running",
+                "status": status,
                 "restarts": info.get("count", 0),
                 "last_error": info.get("last_error"),
+                "heartbeat_age_s": hb_age,
             })
+
+        # Heat status
+        try:
+            from agents import risk_manager
+            heat_status = risk_manager.get_heat_status()
+        except Exception:
+            heat_status = {}
 
         # Trading paused flag
         trading_paused = getattr(shared, "trading_paused", False)
 
+    # Allocation breakdown
+    allocation = {}
+    total_mv = 0
+    for p in positions:
+        ac = p.get("asset_class") or "unknown"
+        mv = abs(float(p.get("market_val") or 0))
+        allocation[ac] = allocation.get(ac, 0) + mv
+        total_mv += mv
+    allocation_pct = {k: round(v / total_mv * 100, 1) if total_mv > 0 else 0
+                      for k, v in allocation.items()}
+
+    # Concentration risk
+    equity = float(account_data.get("equity", 0) or 0)
+    max_conc = 0
+    max_conc_sym = ""
+    for p in positions:
+        mv = abs(float(p.get("market_val") or 0))
+        if equity > 0:
+            pct = mv / equity
+            if pct > max_conc:
+                max_conc = pct
+                max_conc_sym = p.get("symbol", "")
+
     return {
-        "total_trades":    trades_summary.get("n") or 0,
-        "total_volume":    round(trades_summary.get("vol") or 0, 2),
-        "positions":       positions,
-        "recent_trades":   recent_trades,
-        "plan":            plan_data,
-        "plan_summary":    plan_row.get("summary", ""),
-        "errors":          errors,
-        "signals":         signals,
-        "outcomes":        outcomes,
-        "strategy_scores": scores,
-        "server_ts":       time.time(),
-        "account":         account_data,
-        "agent_status":    agent_status,
-        "trading_paused":  trading_paused,
-        "market_open":     getattr(shared, "MARKET_OPEN", False) if HAS_BOT else False,
+        "total_trades":      trades_summary.get("n") or 0,
+        "total_volume":      round(trades_summary.get("vol") or 0, 2),
+        "positions":         positions,
+        "recent_trades":     recent_trades,
+        "plan":              plan_data,
+        "plan_summary":      plan_row.get("summary", ""),
+        "plan_history":      plan_history,
+        "errors":            errors,
+        "signals":           signals,
+        "outcomes":          outcomes,
+        "strategy_scores":   scores,
+        "server_ts":         time.time(),
+        "account":           account_data,
+        "agent_status":      agent_status,
+        "trading_paused":    trading_paused,
+        "market_open":       _get_market_open(),
+        "heat_status":       heat_status,
+        "allocation":        allocation_pct,
+        "concentration":     {"max_pct": round(max_conc * 100, 1), "symbol": max_conc_sym},
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# EXEC SUITE — POST handlers
-# ═══════════════════════════════════════════════════════════
+# ── POST handlers ──
 
 def _read_body(handler):
-    """Read and parse JSON body from a POST/PUT request."""
     length = int(handler.headers.get("Content-Length", 0))
     if length == 0:
         return {}
@@ -119,7 +185,6 @@ def _read_body(handler):
     return json.loads(raw)
 
 def _json_response(handler, data, status=200):
-    """Send a JSON response."""
     body = json.dumps(data).encode()
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
@@ -128,19 +193,16 @@ def _json_response(handler, data, status=200):
     handler.wfile.write(body)
 
 def exec_pause(handler):
-    """CEO: Pause all order execution."""
     if HAS_BOT:
         shared.trading_paused = True
     _json_response(handler, {"status": "ok", "trading_paused": True})
 
 def exec_resume(handler):
-    """CEO: Resume order execution."""
     if HAS_BOT:
         shared.trading_paused = False
     _json_response(handler, {"status": "ok", "trading_paused": False})
 
 def exec_emergency_stop(handler):
-    """Emergency: halt everything and cancel all open orders."""
     if HAS_BOT:
         shared.trading_paused = True
         shared.SHUTTING_DOWN = True
@@ -153,7 +215,6 @@ def exec_emergency_stop(handler):
     _json_response(handler, {"status": "ok", "message": "Emergency stop executed"})
 
 def exec_cancel_all(handler):
-    """Cancel all open orders without stopping the bot."""
     if HAS_BOT:
         try:
             from alpaca_local import client as alpaca
@@ -164,13 +225,11 @@ def exec_cancel_all(handler):
     _json_response(handler, {"status": "ok", "message": "All orders cancelled"})
 
 def exec_force_rebalance(handler):
-    """CIO: Trigger immediate rebalance cycle."""
     if HAS_BOT:
         shared.force_rebalance = True
     _json_response(handler, {"status": "ok", "message": "Rebalance queued"})
 
 def exec_update_stance(handler):
-    """CEO: Update market stance."""
     data = _read_body(handler)
     stance = data.get("stance", "neutral")
     if HAS_BOT:
@@ -180,7 +239,6 @@ def exec_update_stance(handler):
     _json_response(handler, {"status": "ok", "stance": stance})
 
 def exec_update_risk_limits(handler):
-    """CRO: Override risk limits at runtime."""
     data = _read_body(handler)
     if "max_position_size" in data:
         settings.MAX_POSITION_SIZE = float(data["max_position_size"])
@@ -190,9 +248,7 @@ def exec_update_risk_limits(handler):
     _json_response(handler, {"status": "ok", "message": "Risk limits updated"})
 
 def exec_update_plan(handler):
-    """CIO: Update investment plan targets."""
     data = _read_body(handler)
-    # Update in-memory
     if HAS_BOT and shared.investment_plan and isinstance(shared.investment_plan, dict):
         with shared.cache_lock:
             if "targets" in data:
@@ -201,12 +257,11 @@ def exec_update_plan(handler):
                 shared.investment_plan["stance"] = data["stance"]
             if "exclusions" in data:
                 shared.investment_plan["exclusions"] = data["exclusions"]
-    # Persist to DB
     try:
-        conn = sqlite3.connect(settings.DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute(
             "INSERT INTO investment_plans (plan_json, summary, trigger, ts) VALUES (?, ?, ?, ?)",
-            (json.dumps(data), "Exec Suite update", "cio_override", time.strftime("%Y-%m-%d %H:%M:%S"))
+            (json.dumps(data), "Dashboard update", "dashboard_override", time.time())
         )
         conn.commit()
         conn.close()
@@ -216,33 +271,30 @@ def exec_update_plan(handler):
     _json_response(handler, {"status": "ok", "message": "Plan updated"})
 
 def exec_rollback_plan(handler):
-    """CIO: Roll back to previous plan version."""
     try:
         rows = query("SELECT plan_json FROM investment_plans ORDER BY version DESC LIMIT 2")
         if len(rows) < 2:
             _json_response(handler, {"error": "No previous plan"}, 400)
             return
         prev = rows[1]
-        conn = sqlite3.connect(settings.DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute(
             "INSERT INTO investment_plans (plan_json, summary, trigger, ts) VALUES (?, ?, ?, ?)",
-            (prev["plan_json"], "Rollback", "cio_rollback", time.strftime("%Y-%m-%d %H:%M:%S"))
+            (prev["plan_json"], "Rollback", "dashboard_rollback", time.time())
         )
         conn.commit()
         conn.close()
-        # Update in-memory
         if HAS_BOT:
             with shared.cache_lock:
                 try:
                     shared.investment_plan = json.loads(prev["plan_json"])
-                except:
+                except Exception:
                     pass
         _json_response(handler, {"status": "ok", "message": "Rolled back"})
     except Exception as e:
         _json_response(handler, {"error": str(e)}, 500)
 
 
-# ── Route table for POST endpoints ──
 POST_ROUTES = {
     "/api/exec/pause":           exec_pause,
     "/api/exec/resume":          exec_resume,
@@ -261,7 +313,6 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_OPTIONS(self):
-        """Handle CORS preflight requests."""
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
@@ -319,6 +370,7 @@ if __name__ == "__main__":
     server = HTTPServer(("localhost", settings.DASHBOARD_PORT), Handler)
     print(f"Dashboard running at http://localhost:{settings.DASHBOARD_PORT}")
     print(f"Exec Suite API: {len(POST_ROUTES)} endpoints active")
+    print(f"Database: {_db_path()}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
