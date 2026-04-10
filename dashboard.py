@@ -63,6 +63,10 @@ def api_data():
     scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
     plan_history = query("SELECT version, ts, trigger, summary FROM investment_plans ORDER BY version DESC LIMIT 10")
 
+    # News articles (today + recent)
+    news_articles = query("""SELECT headline, summary, symbols, source, ts
+        FROM news ORDER BY ts DESC LIMIT 50""")
+
     # Screener activity
     screener_recent = query("""SELECT symbol, score, reasons, promoted, ts
         FROM screener_scores ORDER BY ts DESC LIMIT 30""")
@@ -240,6 +244,7 @@ def api_data():
         "options_trades":    options_trades,
         "live_heat":         round(total_mv / equity * 100, 1) if equity > 0 else 0,
         "rejections":        rejections,
+        "news_articles":     news_articles,
     }
 
 

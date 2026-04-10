@@ -274,6 +274,7 @@ a { color: var(--cyan); text-decoration: none; }
   <div class="tabs">
     <div class="tab active" data-tab="dashboard">Dashboard</div>
     <div class="tab" data-tab="performance">Performance</div>
+    <div class="tab" data-tab="news">News</div>
     <div class="tab" data-tab="command">Command</div>
   </div>
 
@@ -484,7 +485,40 @@ a { color: var(--cyan); text-decoration: none; }
 
   </div>
 
-  <!-- ═══════════════════════════ TAB 3: COMMAND ══════════════════ -->
+  <!-- ═══════════════════════════ TAB 3: NEWS ═════════════════════ -->
+  <div class="tab-content" id="tab-news">
+
+    <!-- Sentiment Summary -->
+    <div class="grid-3 mb">
+      <div class="card stat-card">
+        <div class="card-label">Articles Today</div>
+        <div class="card-value" id="newsCount">—</div>
+      </div>
+      <div class="card stat-card">
+        <div class="card-label">Avg Sentiment</div>
+        <div class="card-value" id="newsAvgSent">—</div>
+      </div>
+      <div class="card stat-card">
+        <div class="card-label">Watchlist Mentions</div>
+        <div class="card-value" id="newsWatchlistHits">—</div>
+      </div>
+    </div>
+
+    <!-- Sentiment by Symbol -->
+    <div class="card mb">
+      <div class="card-label">Sentiment by Symbol</div>
+      <div id="newsSentBySymbol"></div>
+    </div>
+
+    <!-- News Feed -->
+    <div class="card">
+      <div class="card-label">Latest Articles</div>
+      <div id="newsFeed" style="max-height:600px;overflow-y:auto;"></div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════ TAB 4: COMMAND ══════════════════ -->
   <div class="tab-content" id="tab-command">
 
     <!-- Agent Network Org Chart -->
@@ -729,6 +763,8 @@ async function fetchData() {
       parameters: raw.parameters || {},
       // Portfolio history (real Alpaca data)
       portfolio_history: raw.portfolio_history || [],
+      // News
+      news_articles: raw.news_articles || [],
       // Screener + Options + Rejections
       screener_activity: raw.screener_activity || [],
       options_trades: (raw.options_trades || []).filter(t => t.qty > 0 && t.price > 0),
@@ -1049,6 +1085,9 @@ function render() {
   renderOptionsActivity(state.options_trades);
   renderScreenerActivity(state.screener_activity);
   renderTradeLog(trades);
+
+  // News tab
+  renderNews(state.news_articles);
 
   // Command tab
   renderParams(state.parameters);
@@ -1625,6 +1664,106 @@ function renderScreenerActivity(activity) {
       </div>`;
     }).join('')}
   `;
+}
+
+// ── News Tab ────────────────────────────────────────────────
+function renderNews(articles) {
+  if (!articles) return;
+
+  // Import sentiment scorer (reuse the keyword approach client-side)
+  const POS = {'beat':2,'beats':2,'exceed':1.5,'record':1.5,'surge':1.5,'rally':1,'upgrade':2,'outperform':2,
+    'growth':1,'profit':1,'strong':1,'gain':1,'raise':1,'approved':1.5,'breakthrough':2,'buyback':1,'dividend':0.5};
+  const NEG = {'miss':2,'misses':2,'disappoint':1.5,'drop':1,'fell':1,'downgrade':2,'underperform':2,
+    'loss':1.5,'decline':1,'weak':1,'cut':1.5,'layoff':2,'lawsuit':1.5,'fraud':2,'bankruptcy':3,'warning':1,'recall':1.5};
+
+  function scoreSentiment(text) {
+    if (!text) return 0;
+    const words = text.toLowerCase().match(/\b\w+\b/g) || [];
+    let pos = 0, neg = 0;
+    words.forEach(w => { if (POS[w]) pos += POS[w]; if (NEG[w]) neg += NEG[w]; });
+    const total = pos + neg;
+    return total === 0 ? 0 : (pos - neg) / total;
+  }
+
+  // Get watchlist symbols for matching
+  const watchlist = new Set((state.positions || []).map(p => p.symbol));
+
+  // Score and enrich articles
+  const scored = articles.map(a => {
+    const syms = (a.symbols || '').split(',').filter(Boolean);
+    const sent = scoreSentiment((a.headline || '') + ' ' + (a.summary || ''));
+    const watchHits = syms.filter(s => watchlist.has(s));
+    return { ...a, syms, sent, watchHits };
+  });
+
+  // Stats
+  $('newsCount').textContent = articles.length;
+  const avgSent = scored.length > 0 ? scored.reduce((s, a) => s + a.sent, 0) / scored.length : 0;
+  const sentEl = $('newsAvgSent');
+  sentEl.textContent = (avgSent >= 0 ? '+' : '') + avgSent.toFixed(2);
+  sentEl.style.color = avgSent >= 0.05 ? 'var(--green)' : avgSent <= -0.05 ? 'var(--red)' : 'var(--text-2)';
+  $('newsWatchlistHits').textContent = scored.filter(a => a.watchHits.length > 0).length;
+
+  // Sentiment by symbol — aggregate for symbols that appear in multiple articles
+  const symSent = {};
+  scored.forEach(a => {
+    a.syms.forEach(sym => {
+      if (!symSent[sym]) symSent[sym] = { total: 0, count: 0 };
+      symSent[sym].total += a.sent;
+      symSent[sym].count++;
+    });
+  });
+  // Show top symbols by article count, highlight watchlist
+  const sortedSyms = Object.entries(symSent)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 20);
+  const maxCount = sortedSyms.length > 0 ? sortedSyms[0][1].count : 1;
+
+  $('newsSentBySymbol').innerHTML = sortedSyms.length > 0 ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      ${sortedSyms.map(([sym, data]) => {
+        const avg = data.total / data.count;
+        const isWatched = watchlist.has(sym);
+        const sentColor = avg >= 0.1 ? 'var(--green)' : avg <= -0.1 ? 'var(--red)' : 'var(--text-3)';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:${isWatched ? 'rgba(0,255,136,0.04)' : 'transparent'};border-radius:4px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${isWatched ? '<span style="color:var(--green);font-size:10px;">&#9679;</span>' : ''}
+            <span style="font-size:13px;font-weight:${isWatched ? '600' : '400'};color:var(--text-1);">${sym}</span>
+            <span style="font-size:12px;color:var(--text-4);">${data.count} article${data.count > 1 ? 's' : ''}</span>
+          </div>
+          <span style="font-size:13px;font-weight:600;color:${sentColor};font-family:'JetBrains Mono',monospace;">${avg >= 0 ? '+' : ''}${avg.toFixed(2)}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  ` : '<div style="color:var(--text-4);font-size:13px;">No symbol-tagged articles yet</div>';
+
+  // News feed
+  $('newsFeed').innerHTML = scored.map(a => {
+    const sentColor = a.sent >= 0.1 ? 'var(--green)' : a.sent <= -0.1 ? 'var(--red)' : 'var(--text-4)';
+    const sentLabel = a.sent >= 0.1 ? 'Bullish' : a.sent <= -0.1 ? 'Bearish' : 'Neutral';
+    const symTags = a.syms.slice(0, 5).map(s => {
+      const isWatched = watchlist.has(s);
+      return `<span style="display:inline-block;padding:2px 6px;font-size:11px;border-radius:3px;margin-right:4px;background:${isWatched ? 'rgba(0,255,136,0.1)' : 'rgba(255,255,255,0.04)'};color:${isWatched ? 'var(--green)' : 'var(--text-3)'};">${s}</span>`;
+    }).join('') + (a.syms.length > 5 ? `<span style="color:var(--text-4);font-size:11px;">+${a.syms.length - 5}</span>` : '');
+    const time = a.ts ? new Date(typeof a.ts === 'number' ? a.ts * 1000 : a.ts).toLocaleString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}) : '';
+
+    return `<div style="padding:12px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+        <div style="font-size:14px;font-weight:500;color:var(--text-1);line-height:1.4;flex:1;margin-right:12px;">${a.headline || 'No headline'}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <span style="font-size:12px;font-weight:600;color:${sentColor};padding:2px 8px;background:${a.sent >= 0.1 ? 'rgba(0,255,136,0.08)' : a.sent <= -0.1 ? 'rgba(255,68,102,0.08)' : 'rgba(255,255,255,0.03)'};border-radius:4px;">${sentLabel}</span>
+        </div>
+      </div>
+      ${a.summary ? `<div style="font-size:13px;color:var(--text-3);margin-bottom:6px;line-height:1.4;">${a.summary.substring(0, 150)}${a.summary.length > 150 ? '...' : ''}</div>` : ''}
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>${symTags}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;color:var(--text-4);">${a.source || ''}</span>
+          <span style="font-size:12px;color:var(--text-4);font-family:'JetBrains Mono',monospace;">${time}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('') || '<div style="color:var(--text-4);text-align:center;padding:20px;font-size:13px;">No news articles yet</div>';
 }
 
 let _paramsCache = {};
