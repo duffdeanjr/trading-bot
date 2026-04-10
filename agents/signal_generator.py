@@ -161,16 +161,25 @@ def _emit_equity_signals(symbols: list) -> list:
         # -- Technical indicators --
         ohlcv  = _build_ohlcv(symbol)
         closes = ohlcv.get("closes", [])
+        highs  = ohlcv.get("highs", [])
+        lows   = ohlcv.get("lows", [])
+        volumes = ohlcv.get("volumes", [])
 
-        # Append current bar close for freshness
+        # Append current bar for freshness (all arrays must stay same length)
         if closes:
-            closes = closes + [close]
+            high = float(getattr(bar, "high", close) or close)
+            low  = float(getattr(bar, "low", close) or close)
+            vol  = float(getattr(bar, "volume", 0) or 0)
+            closes  = closes + [close]
+            highs   = highs + [high]
+            lows    = lows + [low]
+            volumes = volumes + [vol]
 
         ind = indicators.compute_all({
             "closes":  closes,
-            "highs":   ohlcv.get("highs", []),
-            "lows":    ohlcv.get("lows", []),
-            "volumes": ohlcv.get("volumes", []),
+            "highs":   highs,
+            "lows":    lows,
+            "volumes": volumes,
         })
 
         rsi_val  = ind.get("rsi")

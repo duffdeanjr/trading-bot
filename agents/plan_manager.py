@@ -315,6 +315,26 @@ def _scheduled_refresh():
         logger.debug("plan_manager: scheduled refresh — no changes")
 
 
+def _build_ohlcv(symbol: str) -> dict:
+    """Convert historical_ohlcv data (may be list of Bar objects) to indicator-ready dict."""
+    with shared.cache_lock:
+        hist = shared.historical_ohlcv.get(symbol, {})
+    if isinstance(hist, dict) and "closes" in hist:
+        return hist
+    if isinstance(hist, list):
+        result = {"closes": [], "highs": [], "lows": [], "volumes": []}
+        for b in hist:
+            try:
+                result["closes"].append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
+                result["highs"].append(float(getattr(b, "high", getattr(b, "h", 0)) or 0))
+                result["lows"].append(float(getattr(b, "low", getattr(b, "l", 0)) or 0))
+                result["volumes"].append(float(getattr(b, "volume", getattr(b, "v", 0)) or 0))
+            except Exception:
+                continue
+        return result
+    return {}
+
+
 def _continuous_review():
     """
     Proactive plan review that runs every REVIEW_INTERVAL seconds.
@@ -336,19 +356,13 @@ def _continuous_review():
     # -- 1. Review held positions: adjust conviction by live technicals + P&L --
     removals = []
     for sym, entry in list(plan.get("symbols", {}).items()):
-        # Get live indicator data
-        with shared.cache_lock:
-            ohlcv = shared.historical_ohlcv.get(sym, {})
+        # Get live indicator data (convert bar list to dict if needed)
+        ohlcv = _build_ohlcv(sym)
         closes = ohlcv.get("closes", [])
         if len(closes) < 14:
             continue
 
-        ind = indicators.compute_all({
-            "closes":  closes,
-            "highs":   ohlcv.get("highs", []),
-            "lows":    ohlcv.get("lows", []),
-            "volumes": ohlcv.get("volumes", []),
-        })
+        ind = indicators.compute_all(ohlcv)
 
         rsi_val = ind.get("rsi")
         macd_d = ind.get("macd") or {}
@@ -429,18 +443,12 @@ def _continuous_review():
         for sym in watchlist:
             if sym in plan_syms or sym in exclusions:
                 continue
-            with shared.cache_lock:
-                ohlcv = shared.historical_ohlcv.get(sym, {})
+            ohlcv = _build_ohlcv(sym)
             closes = ohlcv.get("closes", [])
             if len(closes) < 20:
                 continue
 
-            ind = indicators.compute_all({
-                "closes":  closes,
-                "highs":   ohlcv.get("highs", []),
-                "lows":    ohlcv.get("lows", []),
-                "volumes": ohlcv.get("volumes", []),
-            })
+            ind = indicators.compute_all(ohlcv)
             rsi_val = ind.get("rsi")
             macd_d = ind.get("macd") or {}
             boll_d = ind.get("bollinger") or {}

@@ -46,8 +46,10 @@ def _supervised(fn, name: str):
                 if shared.SHUTTING_DOWN:
                     break
                 restart_n += 1
+                import traceback
+                tb = traceback.format_exc()
                 err_msg = f"{type(exc).__name__}: {exc}"
-                logger.error(f"supervisor: agent '{name}' crashed (restart #{restart_n}): {err_msg}")
+                logger.error(f"supervisor: agent '{name}' crashed (restart #{restart_n}): {err_msg}\n{tb}")
 
                 with shared.errors_lock:
                     shared.AGENT_ERRORS[name] = {

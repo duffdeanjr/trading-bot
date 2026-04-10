@@ -112,16 +112,29 @@ def estimate_iv_from_chain(symbol: str, S: float) -> float:
     """
     # Try to get options chain data from ref library
     with shared.cache_lock:
-        ohlcv = shared.historical_ohlcv.get(symbol, {})
+        raw = shared.historical_ohlcv.get(symbol, {})
+
+    # Convert bar list to dict if needed (ref_library stores Alpaca Bar objects)
+    if isinstance(raw, list):
+        ohlcv = {"closes": []}
+        for b in raw:
+            try:
+                ohlcv["closes"].append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
+            except Exception:
+                continue
+    elif isinstance(raw, dict):
+        ohlcv = raw
+    else:
+        ohlcv = {}
 
     # If options data present with IV field, use it directly
-    if "iv" in ohlcv:
+    if isinstance(ohlcv, dict) and "iv" in ohlcv:
         iv = ohlcv["iv"]
         snapshot_iv(symbol, iv)
         return iv
 
     # Fallback: use 30-day realized vol as IV proxy
-    closes = ohlcv.get("closes", [])
+    closes = ohlcv.get("closes", []) if isinstance(ohlcv, dict) else []
     if len(closes) >= 20:
         returns = [math.log(closes[i] / closes[i-1]) for i in range(1, len(closes))]
         if returns:
