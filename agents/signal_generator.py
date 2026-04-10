@@ -158,15 +158,19 @@ def _emit_equity_signals(symbols: list) -> list:
             continue
 
         bar = bars.get(symbol)
-        if bar is None:
-            continue
-
-        close = float(getattr(bar, "close", 0) or 0)
-        if close <= 0:
-            continue
 
         # -- Technical indicators --
         ohlcv  = _build_ohlcv(symbol)
+
+        # Use stream bar close if available, else fall back to latest historical close
+        if bar is not None:
+            close = float(getattr(bar, "close", 0) or 0)
+        else:
+            hist_closes = ohlcv.get("closes", [])
+            close = hist_closes[-1] if hist_closes else 0
+
+        if close <= 0:
+            continue
         closes = ohlcv.get("closes", [])
         highs  = ohlcv.get("highs", [])
         lows   = ohlcv.get("lows", [])
@@ -268,6 +272,8 @@ def _emit_equity_signals(symbols: list) -> list:
 
         # 5. Options signals based on IV regime
         #    Allow heuristic regime when IVR is not yet computed (< 20 history points)
+        if regime == "unknown":
+            logger.debug(f"options: {symbol} skipped — IV regime unknown (iv={iv_val})")
         if (settings.OPTIONS_ENABLED
                 and settings.OPTIONS_LEVEL >= 3
                 and shared.MARKET_OPEN
@@ -275,6 +281,7 @@ def _emit_equity_signals(symbols: list) -> list:
                 and regime != "unknown"):
 
             opt_strategy = iv_engine.select_strategy(ivr_data)
+            logger.info(f"options: {symbol} IV={iv_val:.3f} regime={regime} ivr={ivr} -> {opt_strategy}")
 
             # Note: do NOT call _already_emitted here — the dedup loop
             # below handles it.  Calling it here would add the key to the
