@@ -1032,7 +1032,7 @@ function render() {
   const avgLoss = avgL.length ? avgL.reduce((s, o) => s + o.pnl, 0) / avgL.length : null;
   $('avgWin').textContent = avgWin != null ? fmtPnl(avgWin) : '—';
   $('avgLoss').textContent = avgLoss != null ? fmtPnl(avgLoss) : '—';
-  renderStrategyPerf(outcomes);
+  renderStrategyPerf(trades);
   renderPlan(plan);
   renderOptionsActivity(state.options_trades);
   renderScreenerActivity(state.screener_activity);
