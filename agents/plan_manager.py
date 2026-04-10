@@ -434,6 +434,16 @@ def _continuous_review():
                     if entry["target_pct"] < 0.005:
                         removals.append(sym)
 
+        # Auto-trim overweight positions: if a single position exceeds
+        # MAX_PORTFOLIO_PCT, reduce its target to force a sell-down
+        if equity > 0 and mv > 0:
+            current_pct = mv / equity
+            if current_pct > settings.MAX_PORTFOLIO_PCT * 1.5:
+                # Severely overweight — cut target to MAX_PORTFOLIO_PCT
+                entry["target_pct"] = settings.MAX_PORTFOLIO_PCT
+                entry["reason"] = f"overweight {current_pct:.0%}, trimming to {settings.MAX_PORTFOLIO_PCT:.0%}"
+                notes.append(f"{sym}: overweight {current_pct:.0%} -> target {settings.MAX_PORTFOLIO_PCT:.0%}")
+
         # Remove positions where conviction has collapsed
         if entry["conviction"] < 0.15:
             removals.append(sym)

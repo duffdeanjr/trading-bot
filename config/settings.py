@@ -74,7 +74,7 @@ VIX_NORMAL  = float(os.getenv("VIX_NORMAL", "20"))
 VIX_CAUTION = float(os.getenv("VIX_CAUTION", "25"))
 VIX_HIGH    = float(os.getenv("VIX_HIGH", "35"))
 VIX_EXTREME = float(os.getenv("VIX_EXTREME", "45"))
-HEAT_MAX    = float(os.getenv("HEAT_MAX", "0.80"))
+HEAT_MAX    = float(os.getenv("HEAT_MAX", "0.90"))
 HEAT_WARN   = float(os.getenv("HEAT_WARN", "0.60"))
 
 # ── dashboard ────────────────────────────────────────────────

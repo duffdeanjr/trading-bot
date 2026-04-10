@@ -261,6 +261,10 @@ def _execute_toward_targets():
         except Exception:
             current_alloc[sym] = 0.0
 
+    # Track cumulative buys this cycle to avoid blowing through heat limit
+    buy_budget = max(0, (settings.HEAT_MAX - sum(current_alloc.values())) * equity)
+    bought_this_cycle = 0.0
+
     for symbol, target_pct in targets.items():
         current_pct = current_alloc.get(symbol, 0.0)
         gap = target_pct - current_pct
@@ -268,14 +272,23 @@ def _execute_toward_targets():
         if abs(gap) < settings.REBALANCE_THRESHOLD:
             continue
 
+        side = "buy" if gap > 0 else "sell"
+
+        # Cap buys to remaining heat budget
+        if side == "buy" and bought_this_cycle >= buy_budget:
+            logger.debug(f"order_exec: skipping {symbol} buy — heat budget exhausted "
+                         f"(${bought_this_cycle:,.0f} / ${buy_budget:,.0f})")
+            continue
+
         # Compute notional to trade
         notional = abs(gap) * equity * size_mult
         notional = min(notional, settings.MAX_POSITION_SIZE)
 
+        if side == "buy":
+            notional = min(notional, buy_budget - bought_this_cycle)
+
         if notional < 1.0:
             continue
-
-        side = "buy" if gap > 0 else "sell"
 
         # Check not already pending
         if _is_pending(symbol, side, "target_rebalance"):
@@ -289,5 +302,9 @@ def _execute_toward_targets():
         }
 
         logger.info(f"order_exec: rebalance {side} {symbol} "
-                    f"gap={gap:+.1%} notional=${notional:.0f}")
+                    f"gap={gap:+.1%} notional=${notional:.0f}"
+                    f"{f' (budget ${buy_budget-bought_this_cycle:,.0f} left)' if side=='buy' else ''}")
         place_order(signal)
+
+        if side == "buy":
+            bought_this_cycle += notional
