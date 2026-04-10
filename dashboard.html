@@ -265,6 +265,7 @@ a { color: var(--cyan); text-decoration: none; }
     </div>
     <div class="header-right">
       <span class="clock" id="clock">--:--:--</span>
+      <button id="btnPower" onclick="toggleSystem()" style="padding:8px 18px;border-radius:var(--radius-xs);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;background:rgba(0,255,136,0.1);color:var(--green);border:1px solid rgba(0,255,136,0.3);">ON</button>
       <button class="btn-emergency" id="btnEmergency">emergency stop</button>
     </div>
   </header>
@@ -1040,6 +1041,9 @@ function render() {
 
   // Command tab
   renderParams(state.parameters);
+
+  // Power button sync
+  updatePowerButton();
 
   // Command text
   renderOrgChart();
@@ -2016,6 +2020,42 @@ function renderSparkline() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  POWER TOGGLE (pause/resume all trading)
+let _systemOn = true;
+
+function updatePowerButton() {
+  const paused = state.trading_paused;
+  _systemOn = !paused;
+  const btn = $('btnPower');
+  if (_systemOn) {
+    btn.textContent = 'ON';
+    btn.style.background = 'rgba(0,255,136,0.1)';
+    btn.style.color = 'var(--green)';
+    btn.style.borderColor = 'rgba(0,255,136,0.3)';
+  } else {
+    btn.textContent = 'OFF';
+    btn.style.background = 'rgba(255,68,102,0.15)';
+    btn.style.color = 'var(--red)';
+    btn.style.borderColor = 'rgba(255,68,102,0.4)';
+  }
+}
+
+async function toggleSystem() {
+  const btn = $('btnPower');
+  btn.textContent = '...';
+  try {
+    const endpoint = _systemOn ? '/api/exec/pause' : '/api/exec/resume';
+    const resp = await fetch(API + endpoint, { method: 'POST' });
+    const data = await resp.json();
+    _systemOn = !data.trading_paused;
+    updatePowerButton();
+    fetchData();
+  } catch (e) {
+    btn.textContent = 'ERR';
+    setTimeout(() => updatePowerButton(), 2000);
+  }
+}
+
 //  EMERGENCY STOP
 // ══════════════════════════════════════════════════════════════════
 $('btnEmergency').addEventListener('click', async () => {
