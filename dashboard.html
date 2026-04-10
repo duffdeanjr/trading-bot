@@ -310,13 +310,18 @@ a { color: var(--cyan); text-decoration: none; }
       <div class="alert-text" id="alertText"></div>
     </div>
 
-    <!-- Intraday P&L Chart -->
+    <!-- Equity Curve -->
     <div class="card mb">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <span class="card-label" style="margin:0;">Intraday P&L</span>
-        <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
+        <span class="card-label" style="margin:0;">Equity curve</span>
+        <div style="display:flex;gap:6px;" id="eqToggles">
+          <span class="badge badge-live" style="cursor:pointer;font-size:12px;">1M</span>
+          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">3M</span>
+          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">YTD</span>
+          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">ALL</span>
+        </div>
       </div>
-      <canvas id="chartIntraday" height="100"></canvas>
+      <canvas id="chartEquity" height="130"></canvas>
     </div>
 
     <!-- Allocation / Risk / P&L by Class -->
@@ -387,18 +392,13 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Equity Curve -->
+    <!-- Intraday P&L Chart -->
     <div class="card mb">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <span class="card-label" style="margin:0;">Equity curve</span>
-        <div style="display:flex;gap:6px;" id="eqToggles">
-          <span class="badge badge-live" style="cursor:pointer;font-size:12px;">1M</span>
-          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">3M</span>
-          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">YTD</span>
-          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">ALL</span>
-        </div>
+        <span class="card-label" style="margin:0;">Intraday P&L</span>
+        <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
       </div>
-      <canvas id="chartEquity" height="130"></canvas>
+      <canvas id="chartIntraday" height="100"></canvas>
     </div>
 
     <!-- Daily P&L / Trade Distribution -->
