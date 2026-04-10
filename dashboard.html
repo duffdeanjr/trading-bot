@@ -443,24 +443,13 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Investment Plan / Signal Confidence -->
-    <div class="grid-2 mb">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <span class="card-label" style="margin:0;">Investment plan</span>
-          <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
-        </div>
-        <div id="planTargets"></div>
+    <!-- Investment Plan -->
+    <div class="card mb">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span class="card-label" style="margin:0;">Investment plan</span>
+        <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
       </div>
-      <div class="card">
-        <div class="card-label">Signal confidence scatter</div>
-        <canvas id="chartSignalConf" height="100"></canvas>
-        <div style="display:flex;justify-content:space-between;margin-top:4px;">
-          <span style="color:var(--text-4);font-size:11px;">oldest</span>
-          <span style="color:var(--text-4);font-size:11px;">Green = profitable · Red = loss</span>
-          <span style="color:var(--text-4);font-size:11px;">newest</span>
-        </div>
-      </div>
+      <div id="planTargets"></div>
     </div>
 
     <!-- Options Activity / Screener Discoveries -->
@@ -475,10 +464,21 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Order Rejections (moved from Command tab) -->
-    <div class="card mb">
-      <div class="card-label">Order rejections (risk manager)</div>
-      <canvas id="chartRejections" height="100"></canvas>
+    <!-- Order Rejections / Signal Confidence -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Order rejections (risk manager)</div>
+        <canvas id="chartRejections" height="100"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-label">Signal confidence scatter</div>
+        <canvas id="chartSignalConf" height="100"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;">
+          <span style="color:var(--text-4);font-size:11px;">oldest</span>
+          <span style="color:var(--text-4);font-size:11px;">Green = profitable · Red = loss</span>
+          <span style="color:var(--text-4);font-size:11px;">newest</span>
+        </div>
+      </div>
     </div>
 
   </div>
