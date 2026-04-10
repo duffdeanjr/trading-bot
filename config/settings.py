@@ -81,7 +81,7 @@ HEAT_WARN   = float(os.getenv("HEAT_WARN", "0.60"))
 DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5050"))
 
 # ── rebalancing ──────────────────────────────────────────────
-REBALANCE_THRESHOLD = 0.03  # only rebalance when allocation gap > 3%
+REBALANCE_THRESHOLD = 0.01  # only rebalance when allocation gap > 1%
 
 # ── resilience ────────────────────────────────────────────────
 MAX_RETRIES       = 3    # order exec retry attempts on transient errors

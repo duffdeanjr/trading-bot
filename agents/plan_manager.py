@@ -1,17 +1,22 @@
 import time
 import json
+import math
 import logging
 import datetime
 import threading
 
 import shared
 from config import settings
-from storage.database import write_investment_plan, read_latest_plan, get_strategy_score
+from storage.database import (
+    write_investment_plan, read_latest_plan, get_strategy_score,
+    get_closed_outcomes,
+)
 
 logger = logging.getLogger(__name__)
 
 PLAN_REFRESH_INTERVAL = 3600
-PLAN_COOLDOWN = 60
+PLAN_COOLDOWN = 15
+REVIEW_INTERVAL = 90  # seconds between continuous plan reviews
 
 _lock = threading.Lock()
 _last_update = 0.0
@@ -196,7 +201,7 @@ def update_plan(signals: list, trigger: str = "signal_batch") -> dict:
             if sym not in plan["symbols"]:
                 plan["symbols"][sym] = {
                     "conviction":  conf,
-                    "target_pct":  min(conf * 0.05, settings.MAX_PORTFOLIO_PCT),
+                    "target_pct":  min(conf * 0.10, settings.MAX_PORTFOLIO_PCT),
                     "sector":      sector,
                     "strategy":    strategy,
                     "reason":      f"{strategy} conf={conf:.2f} sent={sentiment_val:.2f}",
@@ -310,6 +315,201 @@ def _scheduled_refresh():
         logger.debug("plan_manager: scheduled refresh — no changes")
 
 
+def _continuous_review():
+    """
+    Proactive plan review that runs every REVIEW_INTERVAL seconds.
+    Re-evaluates existing positions using live indicators and P&L,
+    adjusts targets, and discovers new opportunities from watchlist.
+    """
+    from agents import indicators, iv_engine, sentiment as sent_mod
+
+    plan = _get_current_plan()
+    if not plan.get("symbols") and not (shared.MARKET_OPEN or shared.EXTENDED_HOURS):
+        return
+
+    notes = []
+    equity = _get_portfolio_equity()
+    if equity <= 0:
+        return
+    positions = _get_current_positions()
+
+    # -- 1. Review held positions: adjust conviction by live technicals + P&L --
+    removals = []
+    for sym, entry in list(plan.get("symbols", {}).items()):
+        # Get live indicator data
+        with shared.cache_lock:
+            ohlcv = shared.historical_ohlcv.get(sym, {})
+        closes = ohlcv.get("closes", [])
+        if len(closes) < 14:
+            continue
+
+        ind = indicators.compute_all({
+            "closes":  closes,
+            "highs":   ohlcv.get("highs", []),
+            "lows":    ohlcv.get("lows", []),
+            "volumes": ohlcv.get("volumes", []),
+        })
+
+        rsi_val = ind.get("rsi")
+        macd_d = ind.get("macd") or {}
+        ema_d = ind.get("ema_cross") or {}
+        old_conviction = entry.get("conviction", 0.5)
+
+        # Compute a technical health score for the position (0.0 to 1.0)
+        health = 0.5
+        if rsi_val is not None:
+            if rsi_val < 30:
+                health += 0.15          # deeply oversold = opportunity
+            elif rsi_val < 45:
+                health += 0.05
+            elif rsi_val > 75:
+                health -= 0.20          # overbought = danger
+            elif rsi_val > 65:
+                health -= 0.05
+        if macd_d.get("histogram", 0) > 0:
+            health += 0.10              # bullish momentum
+        elif macd_d.get("histogram", 0) < 0:
+            health -= 0.10
+        if ema_d.get("cross") == "bullish":
+            health += 0.10
+        elif ema_d.get("cross") == "bearish":
+            health -= 0.10
+        health = max(0.0, min(1.0, health))
+
+        # Blend old conviction with technical health (70% old, 30% new)
+        new_conviction = old_conviction * 0.7 + health * 0.3
+        entry["conviction"] = round(new_conviction, 3)
+
+        # Adjust target based on conviction change
+        if new_conviction > old_conviction + 0.05:
+            entry["target_pct"] = min(entry["target_pct"] * 1.15, settings.MAX_PORTFOLIO_PCT)
+            notes.append(f"{sym}: conviction up {old_conviction:.2f}->{new_conviction:.2f}")
+        elif new_conviction < old_conviction - 0.1:
+            entry["target_pct"] *= 0.80
+            notes.append(f"{sym}: conviction down {old_conviction:.2f}->{new_conviction:.2f}")
+
+        # Check live P&L for held positions — scale winners, cut losers
+        mv = positions.get(sym, 0.0)
+        if mv != 0 and sym in positions:
+            with shared.positions_lock:
+                pos = shared.positions.get(sym)
+            if pos is not None:
+                try:
+                    unrealized_pct = float(getattr(pos, "unrealized_plpc", 0) or 0)
+                except Exception:
+                    unrealized_pct = 0.0
+
+                # Winner: scale up target slightly (let profits run)
+                if unrealized_pct > 0.10:
+                    entry["target_pct"] = min(entry["target_pct"] * 1.10, settings.MAX_PORTFOLIO_PCT)
+                    entry["reason"] = f"winner +{unrealized_pct:.0%}, scaling up"
+                # Loser beyond -8%: reduce target (cut losses)
+                elif unrealized_pct < -0.08:
+                    entry["target_pct"] *= 0.60
+                    entry["reason"] = f"loser {unrealized_pct:.0%}, cutting"
+                    if entry["target_pct"] < 0.005:
+                        removals.append(sym)
+
+        # Remove positions where conviction has collapsed
+        if entry["conviction"] < 0.15:
+            removals.append(sym)
+
+    for sym in set(removals):
+        if sym in plan["symbols"]:
+            del plan["symbols"][sym]
+            notes.append(f"removed {sym}: conviction/P&L too low")
+
+    # -- 2. Discover new opportunities from watchlist not already in plan --
+    if shared.MARKET_OPEN or shared.EXTENDED_HOURS:
+        with shared.cache_lock:
+            watchlist = list(shared.watchlist) if shared.watchlist else list(shared.ticker_list)
+        plan_syms = set(plan.get("symbols", {}).keys())
+        exclusions = set(plan.get("exclusions", []))
+
+        for sym in watchlist:
+            if sym in plan_syms or sym in exclusions:
+                continue
+            with shared.cache_lock:
+                ohlcv = shared.historical_ohlcv.get(sym, {})
+            closes = ohlcv.get("closes", [])
+            if len(closes) < 20:
+                continue
+
+            ind = indicators.compute_all({
+                "closes":  closes,
+                "highs":   ohlcv.get("highs", []),
+                "lows":    ohlcv.get("lows", []),
+                "volumes": ohlcv.get("volumes", []),
+            })
+            rsi_val = ind.get("rsi")
+            macd_d = ind.get("macd") or {}
+            boll_d = ind.get("bollinger") or {}
+            ema_d = ind.get("ema_cross") or {}
+
+            # Score the opportunity
+            score = 0.0
+            reasons = []
+            if rsi_val and rsi_val < settings.RSI_OVERSOLD:
+                score += 0.3
+                reasons.append(f"RSI={rsi_val:.0f}")
+            if macd_d.get("histogram", 0) > 0:
+                score += 0.2
+                reasons.append("MACD+")
+            if boll_d.get("pct_b", 0.5) < 0.20:
+                score += 0.2
+                reasons.append(f"BB%={boll_d.get('pct_b',0):.2f}")
+            if ema_d.get("cross") == "bullish":
+                score += 0.2
+                reasons.append("EMA_cross")
+
+            # Add if strong enough (at least 2 confirming signals)
+            if score >= 0.4:
+                sector = _infer_sector(sym)
+                target = min(score * 0.10, settings.MAX_PORTFOLIO_PCT)
+                plan["symbols"][sym] = {
+                    "conviction":  round(score, 3),
+                    "target_pct":  target,
+                    "sector":      sector,
+                    "strategy":    "review_discovery",
+                    "reason":      f"auto-review: {', '.join(reasons)}",
+                    "added_at":    datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                }
+                notes.append(f"discovered {sym} score={score:.2f} ({', '.join(reasons)})")
+
+    # -- 3. Re-evaluate stance from current plan positions --
+    if plan.get("symbols"):
+        avg_conviction = sum(
+            e.get("conviction", 0.5) for e in plan["symbols"].values()
+        ) / len(plan["symbols"])
+        if avg_conviction >= 0.6:
+            new_stance = "risk-on"
+        elif avg_conviction <= 0.3:
+            new_stance = "risk-off"
+        else:
+            new_stance = "neutral"
+        if new_stance != plan.get("stance"):
+            notes.append(f"stance: {plan.get('stance')} -> {new_stance} (avg_conv={avg_conviction:.2f})")
+            plan["stance"] = new_stance
+            if new_stance == "risk-off":
+                plan["cash_target_pct"] = 0.20
+            elif new_stance == "risk-on":
+                plan["cash_target_pct"] = 0.05
+            else:
+                plan["cash_target_pct"] = 0.10
+
+    # -- 4. Apply risk constraints and save if anything changed --
+    plan = _apply_risk_constraints(plan)
+
+    if notes:
+        plan["notes"] = (plan.get("notes", []) + notes)[-50:]
+        n = len(plan["symbols"])
+        summary = f"review: {n} symbols | {len(notes)} changes | stance={plan['stance']}"
+        save_plan(plan, trigger="continuous_review", summary=summary)
+        logger.info(f"plan_manager: continuous review — {len(notes)} adjustments")
+    else:
+        logger.debug("plan_manager: continuous review — no changes")
+
+
 def run():
     logger.info("plan_manager: starting")
     plan = load_plan()
@@ -320,13 +520,22 @@ def run():
         f"with {len(plan.get('symbols',{}))} symbols | stance={plan.get('stance','neutral')}"
     )
     last_refresh = 0.0
+    last_review = 0.0
     while not shared.SHUTTING_DOWN:
+        now = time.time()
         try:
-            if time.time() - last_refresh >= PLAN_REFRESH_INTERVAL:
+            # Hourly: corp action / calendar refresh
+            if now - last_refresh >= PLAN_REFRESH_INTERVAL:
                 if shared.ref_ready_event.is_set():
                     _scheduled_refresh()
-                    last_refresh = time.time()
+                    last_refresh = now
+
+            # Every REVIEW_INTERVAL: continuous analysis of positions + opportunities
+            if now - last_review >= REVIEW_INTERVAL:
+                if shared.ref_ready_event.is_set() and shared.account_ready_event.is_set():
+                    _continuous_review()
+                    last_review = now
         except Exception as e:
-            logger.error(f"plan_manager: scheduled refresh error: {e}")
-        time.sleep(settings.TICK_INTERVAL * 6)
+            logger.error(f"plan_manager: review/refresh error: {e}")
+        time.sleep(settings.TICK_INTERVAL * 3)
     logger.info("plan_manager: SHUTTING_DOWN")

@@ -180,46 +180,52 @@ def _emit_equity_signals(symbols: list) -> list:
         # -- Signal logic --
         signals_for_symbol = []
 
-        # 1. RSI oversold + positive sentiment + bullish EMA = buy
+        # Sentiment is a confidence modifier, not a gate.
+        # Positive sentiment boosts confidence, negative reduces it.
+        sent_boost = sent_score * 0.15  # ±0.15 max swing
+
+        # 1. RSI oversold + bullish EMA = buy
         if (rsi_val and rsi_val < settings.RSI_OVERSOLD
-                and sent_score > 0.1
                 and ema_d.get("cross") != "bearish"):
-            confidence = 0.5 + (settings.RSI_OVERSOLD - rsi_val) / 70 + sent_score * 0.2
+            confidence = 0.5 + (settings.RSI_OVERSOLD - rsi_val) / 70 + sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "buy",
-                "confidence": min(round(confidence, 3), 1.0),
+                "confidence": min(max(round(confidence, 3), 0.3), 1.0),
                 "sentiment":  round(sent_score, 3),
                 "strategy":   "rsi_oversold",
                 "rsi":        round(rsi_val, 1),
             })
 
         # 2. MACD bullish crossover
-        if macd_d.get("histogram", 0) > 0 and sent_score >= 0:
+        if macd_d.get("histogram", 0) > 0:
+            confidence = 0.55 + sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "buy",
-                "confidence": 0.55,
+                "confidence": min(max(round(confidence, 3), 0.3), 1.0),
                 "sentiment":  round(sent_score, 3),
                 "strategy":   "macd_cross",
             })
 
-        # 3. Bollinger Band bounce (price near lower band with positive news)
-        if boll_d.get("pct_b", 0.5) < 0.15 and sent_score > 0:
+        # 3. Bollinger Band bounce (price near lower band)
+        if boll_d.get("pct_b", 0.5) < 0.15:
+            confidence = 0.60 + sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "buy",
-                "confidence": 0.60,
+                "confidence": min(max(round(confidence, 3), 0.3), 1.0),
                 "sentiment":  round(sent_score, 3),
                 "strategy":   "bb_bounce",
             })
 
-        # 4. RSI overbought = sell signal
-        if rsi_val and rsi_val > settings.RSI_OVERBOUGHT and sent_score < 0:
+        # 4. RSI overbought = sell signal (sentiment not required)
+        if rsi_val and rsi_val > settings.RSI_OVERBOUGHT:
+            confidence = 0.5 + (rsi_val - 70) / 60 - sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "sell",
-                "confidence": min(0.5 + (rsi_val - 70) / 60, 1.0),
+                "confidence": min(max(round(confidence, 3), 0.3), 1.0),
                 "sentiment":  round(sent_score, 3),
                 "strategy":   "rsi_overbought",
             })
@@ -233,38 +239,39 @@ def _emit_equity_signals(symbols: list) -> list:
 
             opt_strategy = iv_engine.select_strategy(ivr_data)
 
+            # Note: do NOT call _already_emitted here — the dedup loop
+            # below handles it.  Calling it here would add the key to the
+            # set, causing the loop to see it as "already emitted" and
+            # silently drop the signal.
+
             if opt_strategy == "iron_condor" and ivr >= 50:
-                if not _already_emitted(symbol, "sell", "iron_condor"):
-                    sig = options_strategies.iron_condor(symbol, close)
-                    if sig:
-                        sig["confidence"] = min(0.5 + ivr / 200, 0.9)
-                        sig["sentiment"]  = round(sent_score, 3)
-                        sig["ivr"]        = ivr
-                        signals_for_symbol.append(sig)
+                sig = options_strategies.iron_condor(symbol, close)
+                if sig:
+                    sig["confidence"] = min(0.5 + ivr / 200, 0.9)
+                    sig["sentiment"]  = round(sent_score, 3)
+                    sig["ivr"]        = ivr
+                    signals_for_symbol.append(sig)
 
             elif opt_strategy == "covered_call" and ivr >= 35:
-                # Only if we hold the stock
                 with shared.positions_lock:
                     holds = symbol in shared.positions
-                if holds and not _already_emitted(symbol, "sell", "covered_call"):
+                if holds:
                     sig = options_strategies.covered_call(symbol, close)
                     if sig:
                         sig["confidence"] = 0.70
                         signals_for_symbol.append(sig)
 
             elif opt_strategy == "cash_secured_put":
-                if not _already_emitted(symbol, "sell", "cash_secured_put"):
-                    sig = options_strategies.cash_secured_put(symbol, close)
-                    if sig:
-                        sig["confidence"] = 0.65
-                        signals_for_symbol.append(sig)
+                sig = options_strategies.cash_secured_put(symbol, close)
+                if sig:
+                    sig["confidence"] = 0.65
+                    signals_for_symbol.append(sig)
 
             elif opt_strategy == "calendar_spread" and (ivr is None or ivr <= 30):
-                if not _already_emitted(symbol, "buy", "calendar_spread"):
-                    sig = options_strategies.calendar_spread(symbol, close)
-                    if sig:
-                        sig["confidence"] = 0.60
-                        signals_for_symbol.append(sig)
+                sig = options_strategies.calendar_spread(symbol, close)
+                if sig:
+                    sig["confidence"] = 0.60
+                    signals_for_symbol.append(sig)
 
         # Adjust confidence by strategy score, deduplicate, log to DB, add to batch
         for sig in signals_for_symbol:

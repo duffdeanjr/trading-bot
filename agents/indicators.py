@@ -65,8 +65,8 @@ def ema_cross(closes: list, fast: int = 9, slow: int = 21) -> dict:
     """EMA crossover signal. Returns fast_ema, slow_ema, cross direction."""
     if len(closes) < slow + 2:
         return None
-    fast_ema = _ema(closes, fast)
-    slow_ema = _ema(closes, slow)
+    fast_ema = ema(closes, fast)
+    slow_ema = ema(closes, slow)
     if len(fast_ema) < 2 or len(slow_ema) < 2:
         return None
     cross = "bullish" if fast_ema[-2] < slow_ema[-2] and fast_ema[-1] > slow_ema[-1] else \

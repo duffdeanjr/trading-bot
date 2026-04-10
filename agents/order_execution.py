@@ -33,8 +33,9 @@ def _is_pending(symbol, side, strategy_tag) -> bool:
 def on_fill(event):
     """
     Called by stream.py when a fill event arrives on TradingStream.
-    Writes fill to DB immediately (diagnostic fix ? before shared.py update,
-    so a crash between fill and next poll doesn't lose the trade).
+    Only manages the pending-orders set here. DB writes, positions updates,
+    and outcome tracking are handled by account_agent._on_fill to avoid
+    duplicate writes.
     """
     try:
         order = event.order
@@ -42,31 +43,11 @@ def on_fill(event):
         side         = str(order.side)
         qty          = float(order.filled_qty or 0)
         price        = float(order.filled_avg_price or 0)
-        notional     = qty * price
         coid         = order.client_order_id
         strategy_tag = coid.split("::")[0] if coid and "::" in coid else coid
 
-        # 1. Write to DB immediately (diagnostic fix)
-        database.write_trade(
-            ts=time.time(), symbol=symbol, side=side,
-            qty=qty, price=price, notional=notional,
-            order_type=str(order.order_type),
-            order_class=str(order.order_class) if order.order_class else None,
-            client_order_id=coid,
-            strategy_tag=strategy_tag,
-        )
-
-        # 2. Remove from pending set
+        # Remove from pending set so new orders for this symbol can flow
         _remove_pending(symbol, side, strategy_tag)
-
-        # 3. Update shared positions (optimistic, account agent will confirm on next poll)
-        with shared.positions_lock:
-            pos = shared.positions.get(symbol, {})
-            existing_qty = float(pos.get("qty", 0)) if isinstance(pos, dict) else 0
-            if side == "buy":
-                shared.positions[symbol] = {"qty": existing_qty + qty, "avg_price": price}
-            else:
-                shared.positions[symbol] = {"qty": max(0, existing_qty - qty), "avg_price": price}
 
         logger.info(f"fill: {side} {qty} {symbol} @ {price:.4f}")
 
