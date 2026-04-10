@@ -286,11 +286,21 @@ def _scheduled_refresh():
 
     with shared.cache_lock:
         calendar = list(shared.calendar)
-    now_str = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-    upcoming = [str(c) for c in calendar[:5]]
-    if calendar and now_str not in " ".join(upcoming):
-        notes.append("market holiday approaching — raising cash target")
-        plan["cash_target_pct"] = min(plan["cash_target_pct"] + 0.05, 0.25)
+    # Check if the NEXT market open date is >1 day away (actual holiday gap)
+    today = datetime.date.today()
+    if calendar:
+        try:
+            next_open = None
+            for c in calendar:
+                c_date = c if isinstance(c, datetime.date) else datetime.date.fromisoformat(str(c)[:10])
+                if c_date >= today:
+                    next_open = c_date
+                    break
+            if next_open and (next_open - today).days > 1:
+                notes.append(f"market holiday: next open {next_open}, raising cash target")
+                plan["cash_target_pct"] = min(plan["cash_target_pct"] + 0.05, 0.25)
+        except Exception:
+            pass  # don't let calendar parsing break the refresh
 
     with shared.cache_lock:
         corp_actions = list(shared.corp_actions)

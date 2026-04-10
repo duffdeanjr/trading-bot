@@ -75,7 +75,7 @@ def _refresh_strategy_scores():
     strategies = database.get_distinct_strategies()
     for strat in strategies:
         closed = database.get_closed_outcomes(strategy=strat, limit=50)
-        if len(closed) < 5:
+        if len(closed) < 2:
             continue
         wins = [t for t in closed if (t.get("pnl") or 0) > 0]
         win_rate = len(wins) / len(closed)
@@ -206,9 +206,11 @@ def _emit_equity_signals(symbols: list) -> list:
         sent_boost = sent_score * 0.15  # ±0.15 max swing
 
         # 1. RSI oversold + bullish EMA = buy
+        #    RSI 35 → 0.55, RSI 25 → 0.84, RSI 15 → 1.0
         if (rsi_val and rsi_val < settings.RSI_OVERSOLD
                 and ema_d.get("cross") != "bearish"):
-            confidence = 0.5 + (settings.RSI_OVERSOLD - rsi_val) / 70 + sent_boost
+            rsi_depth = (settings.RSI_OVERSOLD - rsi_val) / settings.RSI_OVERSOLD
+            confidence = 0.55 + rsi_depth * 0.40 + sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "buy",
@@ -218,9 +220,11 @@ def _emit_equity_signals(symbols: list) -> list:
                 "rsi":        round(rsi_val, 1),
             })
 
-        # 2. MACD bullish crossover
-        if macd_d.get("histogram", 0) > 0:
-            confidence = 0.55 + sent_boost
+        # 2. MACD bullish crossover — scale by histogram strength
+        macd_hist = macd_d.get("histogram", 0)
+        if macd_hist > 0:
+            hist_strength = min(abs(macd_hist) / (close * 0.002 + 0.01), 1.0)
+            confidence = 0.55 + hist_strength * 0.20 + sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "buy",
@@ -229,9 +233,11 @@ def _emit_equity_signals(symbols: list) -> list:
                 "strategy":   "macd_cross",
             })
 
-        # 3. Bollinger Band bounce (price near lower band)
-        if boll_d.get("pct_b", 0.5) < 0.15:
-            confidence = 0.60 + sent_boost
+        # 3. Bollinger Band bounce — deeper below band = higher confidence
+        pct_b = boll_d.get("pct_b", 0.5)
+        if pct_b < 0.15:
+            bb_depth = (0.15 - pct_b) / 0.15
+            confidence = 0.60 + bb_depth * 0.25 + sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "buy",
@@ -240,9 +246,11 @@ def _emit_equity_signals(symbols: list) -> list:
                 "strategy":   "bb_bounce",
             })
 
-        # 4. RSI overbought = sell signal (sentiment not required)
+        # 4. RSI overbought = sell signal
+        #    RSI 70 → 0.55, RSI 80 → 0.72, RSI 90 → 0.88
         if rsi_val and rsi_val > settings.RSI_OVERBOUGHT:
-            confidence = 0.5 + (rsi_val - 70) / 60 - sent_boost
+            rsi_excess = (rsi_val - settings.RSI_OVERBOUGHT) / (100 - settings.RSI_OVERBOUGHT)
+            confidence = 0.55 + rsi_excess * 0.40 - sent_boost
             signals_for_symbol.append({
                 "symbol":     symbol,
                 "side":       "sell",
