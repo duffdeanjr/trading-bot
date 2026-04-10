@@ -405,11 +405,32 @@ def run():
         roll_signals   = _check_rolls() if shared.MARKET_OPEN else []
         all_signals    = equity_signals + crypto_signals + roll_signals
 
-        if all_signals:
+        # Separate options signals (need direct order execution) from equity/crypto
+        # (go through plan → rebalance path)
+        plan_signals = []
+        options_signals = []
+        for sig in all_signals:
+            if sig.get("order_class") in ("mleg", "simple") and sig.get("strategy") in (
+                "iron_condor", "covered_call", "cash_secured_put", "calendar_spread", "auto_roll"
+            ):
+                options_signals.append(sig)
+            else:
+                plan_signals.append(sig)
+
+        if plan_signals:
             try:
-                plan_manager.update_plan(all_signals, trigger="signal_batch")
+                plan_manager.update_plan(plan_signals, trigger="signal_batch")
             except Exception as e:
                 logger.warning(f"signal_generator: plan_manager update failed: {e}")
+
+        # Route options signals directly to order execution
+        if options_signals:
+            from agents import order_execution
+            for sig in options_signals:
+                try:
+                    order_execution.place_order(sig)
+                except Exception as e:
+                    logger.warning(f"signal_generator: options order failed [{sig.get('symbol')}]: {e}")
 
         sleep_s = settings.TICK_INTERVAL if (shared.MARKET_OPEN or shared.EXTENDED_HOURS) \
                   else settings.OVERNIGHT_SLEEP
