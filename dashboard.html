@@ -1428,8 +1428,9 @@ let _paramsCache = {};
 let _paramsEditing = false;
 
 function renderParams(params) {
-  if (!params || _paramsEditing) return;
+  if (!params) return;
   _paramsCache = { ...params };
+  if (_paramsEditing) return;  // don't overwrite edit form while user is editing
   const el = $('paramsView');
   if (!el) return;
   let html = '';
