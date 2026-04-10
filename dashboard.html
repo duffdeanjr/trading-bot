@@ -1227,9 +1227,10 @@ function renderEquityCurve() {
   ctx.fillText('$' + Math.round((max + min) / 2).toLocaleString(), 0, h / 2 + 3);
   ctx.fillText('$' + Math.round(min).toLocaleString(), 0, h - 3);
   // Line
+  const padBot = 18;
   const linePoints = pts.map((v, i) => [
     pad + (i / (n - 1)) * (w - pad),
-    5 + (1 - (v - min) / (max - min)) * (h - 10)
+    5 + (1 - (v - min) / (max - min)) * (h - padBot - 10)
   ]);
   const grad = ctx.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, 'rgba(0,255,136,0.2)');
@@ -1241,6 +1242,21 @@ function renderEquityCurve() {
   ctx.arc(last[0], last[1], 3, 0, Math.PI * 2);
   ctx.fillStyle = '#00ff88';
   ctx.fill();
+  // X-axis date labels
+  ctx.font = '8px JetBrains Mono';
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  const today = new Date();
+  const labelCount = 5;
+  for (let i = 0; i < labelCount; i++) {
+    const idx = Math.round(i * (n - 1) / (labelCount - 1));
+    const x = linePoints[idx][0];
+    const d = new Date(today);
+    d.setDate(d.getDate() - (n - 1 - idx));
+    const label = (d.getMonth() + 1) + '/' + d.getDate();
+    ctx.fillText(label, x - 12, h - 3);
+    ctx.beginPath(); ctx.moveTo(x, h - padBot); ctx.lineTo(x, h - padBot + 4); ctx.stroke();
+  }
 }
 
 function renderDailyPnl() {
@@ -1753,25 +1769,32 @@ function renderIntradayChart(positions) {
   const min = Math.min(...pts, -10);
   const max = Math.max(...pts, 10);
   const range = max - min || 1;
+  const padBot = 18;
   const linePoints = pts.map((v, i) => [
     (i / (n - 1)) * w,
-    h * 0.1 + (1 - (v - min) / range) * h * 0.8
+    h * 0.05 + (1 - (v - min) / range) * (h * 0.8 - padBot)
   ]);
+  const lineColor = totalPnl >= 0 ? '#00ff88' : '#ff4466';
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(0,255,136,0.2)');
-  grad.addColorStop(1, 'rgba(0,255,136,0)');
-  drawLine(ctx, linePoints, '#00ff88', 1.8, grad);
+  grad.addColorStop(0, totalPnl >= 0 ? 'rgba(0,255,136,0.2)' : 'rgba(255,68,102,0.2)');
+  grad.addColorStop(1, totalPnl >= 0 ? 'rgba(0,255,136,0)' : 'rgba(255,68,102,0)');
+  drawLine(ctx, linePoints, lineColor, 1.8, grad);
   // Pulsing dot
   const last = linePoints[linePoints.length - 1];
   ctx.beginPath();
   ctx.arc(last[0], last[1], 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#00ff88';
+  ctx.fillStyle = lineColor;
   ctx.fill();
-  // Axis labels
+  // X-axis time labels (9:30 AM to 4:00 PM, 6.5 hours)
   ctx.font = '8px JetBrains Mono';
-  ctx.fillStyle = '#333';
-  ctx.fillText('9:30', 2, h - 2);
-  ctx.fillText('NOW', w - 24, h - 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  const times = ['9:30', '10:30', '11:30', '12:30', '1:30', '2:30', '3:30'];
+  times.forEach((t, i) => {
+    const x = (i / (times.length - 1)) * w;
+    ctx.fillText(t, x - (i === 0 ? 0 : 10), h - 3);
+    ctx.beginPath(); ctx.moveTo(x, h - padBot); ctx.lineTo(x, h - padBot + 4); ctx.stroke();
+  });
 }
 
 function renderSparkline() {
