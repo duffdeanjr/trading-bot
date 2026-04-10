@@ -363,6 +363,21 @@ a { color: var(--cyan); text-decoration: none; }
         </div>
       </div>
     </div>
+
+    <!-- Trade Log -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <span class="card-label" style="margin:0;">Trade log (filtered)</span>
+        <span style="color:var(--text-4);font-size:12px;">hiding $0 fills · aggregated</span>
+      </div>
+      <div class="scroll-y">
+        <table class="trade-table">
+          <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th>Strategy</th></tr></thead>
+          <tbody id="tradeLogBody"></tbody>
+        </table>
+      </div>
+      <div class="show-more" id="tradeLogMore"></div>
+    </div>
   </div>
 
   <!-- ═══════════════════════════ TAB 2: PERFORMANCE ══════════════ -->
@@ -466,20 +481,6 @@ a { color: var(--cyan); text-decoration: none; }
       <canvas id="chartRejections" height="100"></canvas>
     </div>
 
-    <!-- Trade Log -->
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span class="card-label" style="margin:0;">Trade log (filtered)</span>
-        <span style="color:var(--text-4);font-size:12px;">hiding $0 fills · aggregated</span>
-      </div>
-      <div class="scroll-y">
-        <table class="trade-table">
-          <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th>Strategy</th></tr></thead>
-          <tbody id="tradeLogBody"></tbody>
-        </table>
-      </div>
-      <div class="show-more" id="tradeLogMore"></div>
-    </div>
   </div>
 
   <!-- ═══════════════════════════ TAB 3: COMMAND ══════════════════ -->
