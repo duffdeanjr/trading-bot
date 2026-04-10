@@ -73,6 +73,12 @@ def api_data():
         OR strategy_tag IN ('iron_condor','covered_call','cash_secured_put','calendar_spread')
         ORDER BY ts DESC LIMIT 20""")
 
+    # Rejections from agent logs
+    rejections = query("""SELECT ts, message FROM agent_logs
+        WHERE message LIKE '%risk veto%' OR message LIKE '%order 422%'
+        OR message LIKE '%insufficient%' OR message LIKE '%BLOCKED%'
+        ORDER BY ts DESC LIMIT 30""")
+
     # Portfolio history from Alpaca
     portfolio_history_data = []
     try:
@@ -233,6 +239,7 @@ def api_data():
         "screener_activity": screener_recent,
         "options_trades":    options_trades,
         "live_heat":         round(total_mv / equity * 100, 1) if equity > 0 else 0,
+        "rejections":        rejections,
     }
 
 

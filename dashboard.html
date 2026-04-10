@@ -717,9 +717,10 @@ async function fetchData() {
       parameters: raw.parameters || {},
       // Portfolio history (real Alpaca data)
       portfolio_history: raw.portfolio_history || [],
-      // Screener + Options
+      // Screener + Options + Rejections
       screener_activity: raw.screener_activity || [],
       options_trades: (raw.options_trades || []).filter(t => t.qty > 0 && t.price > 0),
+      rejections: raw.rejections || [],
       // Errors from agent_logs
       errors: (raw.errors || []).map(e => ({
         msg: `${e.agent}: ${(e.message || '').substring(0, 60)}`,
@@ -1276,34 +1277,76 @@ function renderDailyPnl() {
   const ctx = clearCanvas(canvas);
   if (!ctx) return;
   const w = ctx._w, h = ctx._h;
-  // Placeholder data
-  const vals = [30, -12, 55, 28, -8, 70, 42, 38, -20, 60, 32, -15, 48, 52];
+  const padBot = 18;
+
+  // Use real portfolio history P&L data
+  const hist = state.portfolio_history || [];
+  let vals, dates;
+  if (hist.length >= 2) {
+    // Take last 14 days
+    const recent = hist.slice(-14);
+    vals = recent.map(p => p.pnl || 0);
+    dates = recent.map(p => new Date(p.ts * 1000));
+  } else {
+    vals = [0];
+    dates = [new Date()];
+  }
+
   const colors = vals.map(v => v >= 0 ? '#00ff88' : '#ff4466');
-  drawBars(ctx, vals, colors, w, h, 4);
-  // Labels
-  ctx.font = '8px Outfit';
-  ctx.fillStyle = '#333';
-  ctx.fillText('14d ago', 2, h - 2);
-  ctx.fillStyle = '#555';
-  ctx.fillText('Today', w - 28, h - 2);
+  drawBars(ctx, vals, colors, w, h - padBot, 4);
+
+  // X-axis date labels
+  ctx.font = '8px JetBrains Mono';
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  if (dates.length > 1) {
+    const step = Math.max(1, Math.floor(dates.length / 4));
+    for (let i = 0; i < dates.length; i += step) {
+      const barW = (w - 4 * (vals.length - 1)) / vals.length;
+      const x = i * (barW + 4) + barW / 2;
+      const d = dates[i];
+      ctx.fillText((d.getMonth()+1) + '/' + d.getDate(), x - 8, h - 3);
+    }
+  }
 }
 
-function renderDistribution(trades) {
+function renderDistribution(outcomes) {
   const canvas = $('chartDistribution');
   const ctx = clearCanvas(canvas);
   if (!ctx) return;
   const w = ctx._w, h = ctx._h;
-  // Buckets: -100, -50, -25, -10, 0, +10, +25, +50, +100
-  const buckets = [3, 8, 15, 25, 35, 22, 12, 5];
-  const colors = ['#ff4466','#ff4466','#ff4466','#666','#00ff88','#00ff88','#00ff88','#00ff88'];
-  drawBars(ctx, buckets, colors, w, h - 16, 3);
-  // Labels
+  const padBot = 16;
+
+  // Bucket trades by P&L from real signals/trades
+  const trades = state.trades || [];
+  const edges = [-100, -50, -10, 0, 10, 50, 100, 500];
+  const labels = ['<-50','-50','-10', '0', '+10','+50','+100'];
+  const buckets = new Array(labels.length).fill(0);
+
+  trades.forEach(t => {
+    // Estimate P&L from notional (rough: positive notional buys, negative sells)
+    const pnl = (t.side || '').toLowerCase().includes('sell') ? (t.notional || 0) : -(t.notional || 0);
+    for (let i = 0; i < edges.length - 1; i++) {
+      if (pnl >= edges[i] && pnl < edges[i + 1]) { buckets[i]++; break; }
+    }
+  });
+
+  const hasTrades = buckets.some(b => b > 0);
+  if (!hasTrades) {
+    // Show empty state
+    ctx.font = '12px Outfit';
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillText('Waiting for closed trades...', w/2 - 70, h/2);
+    return;
+  }
+
+  const colors = labels.map((_, i) => i < 3 ? '#ff4466' : '#00ff88');
+  drawBars(ctx, buckets, colors, w, h - padBot, 3);
+
   ctx.font = '7px JetBrains Mono';
-  ctx.fillStyle = '#444';
-  const labels = ['-50','-25','-10','0','+10','+25','+50','+100'];
-  const barW = (w - 3 * 7) / 8;
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  const barW = (w - 3 * (labels.length - 1)) / labels.length;
   labels.forEach((l, i) => {
-    ctx.fillText(l, i * (barW + 3) + barW / 2 - 6, h - 2);
+    ctx.fillText(l, i * (barW + 3) + barW / 2 - 8, h - 2);
   });
 }
 
@@ -1384,31 +1427,48 @@ function renderSignalConfidence(signals) {
   const ctx = clearCanvas(canvas);
   if (!ctx) return;
   const w = ctx._w, h = ctx._h;
-  // Grid
+  const pad = 28;
+
+  // Grid lines + labels
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 0.5;
-  ctx.beginPath(); ctx.moveTo(0, h); ctx.lineTo(w, h); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(w, 0); ctx.stroke();
-  // Labels
-  ctx.font = '7px JetBrains Mono';
-  ctx.fillStyle = '#333';
-  ctx.fillText('1.0', 1, 8);
-  ctx.fillText('0.5', 1, h / 2 + 3);
-  ctx.fillText('0.0', 1, h - 2);
-  // Placeholder dots if no real signals (seeded)
-  if (!window._sigSeed) window._sigSeed = Array.from({length: 15}, (_, i) => ({
-    confidence: (Math.sin(i * 4.2 + 3) + 1) * 0.35 + 0.3,
-    profitable: Math.sin(i * 2.7) > -0.3
-  }));
-  const dotData = signals.length > 0 ? signals : window._sigSeed;
-  dotData.forEach((s, i) => {
-    const x = 20 + (i / (dotData.length - 1 || 1)) * (w - 30);
-    const y = h - (s.confidence || 0.5) * h;
+  ctx.font = '8px JetBrains Mono';
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  [1.0, 0.75, 0.5, 0.25].forEach(v => {
+    const y = 4 + (1 - v) * (h - 8);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillText(v.toFixed(2), 0, y + 3);
+  });
+
+  if (!signals || signals.length === 0) {
+    ctx.font = '12px Outfit';
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillText('No signals yet', w/2 - 30, h/2);
+    return;
+  }
+
+  // Strategy color map
+  const stratColors = {
+    rsi_oversold: '#00ff88', rsi_overbought: '#ff4466', macd_cross: '#00c8ff',
+    bb_bounce: '#a78bfa', cash_secured_put: '#e879f9', iron_condor: '#ffaa00',
+    review_discovery: '#66d9ef', crypto_momentum: '#ffaa00',
+  };
+
+  signals.forEach((s, i) => {
+    const x = pad + (i / (signals.length - 1 || 1)) * (w - pad - 4);
+    const y = 4 + (1 - (s.confidence || 0.5)) * (h - 12);
+    const color = stratColors[s.strategy] || '#00ff88';
+    // Outer glow
     ctx.beginPath();
-    ctx.arc(x, y, 4, 0, Math.PI * 2);
-    ctx.fillStyle = (s.profitable !== false && (s.pnl || 0) >= 0) ? '#00ff88' : '#ff4466';
-    ctx.globalAlpha = 0.5 + (i / dotData.length) * 0.4;
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.15;
+    ctx.fill();
+    // Inner dot
+    ctx.beginPath();
+    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.5 + (i / signals.length) * 0.5;
     ctx.fill();
   });
   ctx.globalAlpha = 1;
@@ -1784,50 +1844,80 @@ function renderRejections() {
   const ctx = clearCanvas(canvas);
   if (!ctx) return;
   const w = ctx._w, h = ctx._h;
-  // Placeholder rejection data
-  const data = [
-    { label: 'Concentration', value: 8, color: '#ff4466' },
-    { label: 'Size limit', value: 4, color: '#ffaa00' },
-    { label: 'Portfolio %', value: 3, color: '#ffaa00' },
-    { label: 'PDT', value: 1, color: '#a78bfa' },
-  ];
-  const max = Math.max(...data.map(d => d.value), 1);
-  const barW = (w - 40) / data.length;
-  const gap = 10;
+
+  // Categorize real rejection logs
+  const rejects = state.rejections || [];
+  const categories = {
+    'Heat/BP': { count: 0, color: '#ff4466' },
+    'Options BP': { count: 0, color: '#e879f9' },
+    'Position size': { count: 0, color: '#ffaa00' },
+    'Circuit breaker': { count: 0, color: '#ff4466' },
+    'PDT/Margin': { count: 0, color: '#a78bfa' },
+    'Other': { count: 0, color: '#666' },
+  };
+
+  rejects.forEach(r => {
+    const msg = (r.message || '').toLowerCase();
+    if (msg.includes('heat') || msg.includes('buying power') && !msg.includes('option')) categories['Heat/BP'].count++;
+    else if (msg.includes('option') && msg.includes('buying power')) categories['Options BP'].count++;
+    else if (msg.includes('position size') || msg.includes('portfolio_pct')) categories['Position size'].count++;
+    else if (msg.includes('circuit')) categories['Circuit breaker'].count++;
+    else if (msg.includes('pdt') || msg.includes('margin')) categories['PDT/Margin'].count++;
+    else categories['Other'].count++;
+  });
+
+  const data = Object.entries(categories).filter(([,v]) => v.count > 0).map(([label, v]) => ({label, ...v}));
+
+  if (data.length === 0) {
+    ctx.font = '12px Outfit';
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillText('No rejections', w/2 - 40, h/2);
+    ctx.font = '10px Outfit';
+    ctx.fillText('All orders passing risk checks', w/2 - 70, h/2 + 16);
+    return;
+  }
+
+  const max = Math.max(...data.map(d => d.count), 1);
+  const barW = Math.min(60, (w - 20) / data.length - 8);
+  const totalW = data.length * (barW + 8);
+  const startX = (w - totalW) / 2;
+
   data.forEach((d, i) => {
-    const barH = (d.value / max) * (h - 36);
-    const x = 20 + i * (barW + gap / data.length);
+    const barH = (d.count / max) * (h - 40);
+    const x = startX + i * (barW + 8);
     const y = h - 30 - barH;
     ctx.fillStyle = d.color;
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha = 0.7;
     ctx.beginPath();
-    ctx.roundRect(x, y, barW - gap, barH, [3, 3, 0, 0]);
+    ctx.roundRect(x, y, barW, barH, [3, 3, 0, 0]);
     ctx.fill();
     ctx.globalAlpha = 1;
     // Label
     ctx.font = '9px Outfit';
     ctx.fillStyle = d.color;
     ctx.textAlign = 'center';
-    ctx.fillText(d.label, x + (barW - gap) / 2, h - 8);
+    ctx.fillText(d.label, x + barW / 2, h - 6);
     // Value
-    ctx.fillStyle = '#666';
-    ctx.fillText(d.value, x + (barW - gap) / 2, y - 4);
+    ctx.font = '11px JetBrains Mono';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText(d.count, x + barW / 2, y - 5);
   });
   ctx.textAlign = 'left';
 }
 
 function renderSysConfig() {
+  const p = state.parameters || {};
   const config = [
-    ['Mode', 'PAPER', 'var(--amber)'],
-    ['Data feed', 'IEX (free)', 'var(--text-2)'],
-    ['Options', 'Level 3', 'var(--text-2)'],
-    ['Max position', '$10,000', 'var(--text-2)'],
-    ['Max portfolio %', '15%', 'var(--text-2)'],
-    ['Rebalance gap', '3%', 'var(--text-2)'],
-    ['Tick interval', '5s', 'var(--text-2)'],
-    ['Ref refresh', '4h', 'var(--text-2)'],
-    ['Database', 'SQLite', 'var(--text-2)'],
-    ['Uptime', '—', 'var(--text-2)'],
+    ['Mode', p.dry_run ? 'DRY RUN' : 'PAPER', p.dry_run ? 'var(--red)' : 'var(--amber)'],
+    ['Data feed', (p.data_feed || 'iex').toUpperCase(), 'var(--text-2)'],
+    ['Options', p.options_enabled ? `Level ${p.options_level || 3}` : 'OFF', p.options_enabled ? 'var(--text-2)' : 'var(--red)'],
+    ['Max position', '$' + (p.max_position_size || 10000).toLocaleString(), 'var(--text-2)'],
+    ['Max portfolio %', (p.max_portfolio_pct || 10) + '%', 'var(--text-2)'],
+    ['Rebalance gap', (p.rebalance_threshold || 1) + '%', 'var(--text-2)'],
+    ['Heat max', (p.heat_max || 70) + '%', 'var(--text-2)'],
+    ['Tick interval', (p.tick_interval || 5) + 's', 'var(--text-2)'],
+    ['Screener', p.screener_enabled ? 'ON' : 'OFF', p.screener_enabled ? 'var(--green)' : 'var(--red)'],
+    ['Watchlist', (state.positions || []).length + ' pos / ' + (p.max_watchlist_size || 40) + ' max', 'var(--text-2)'],
   ];
   $('sysConfig').innerHTML = config.map(([k, v, c]) =>
     `<span style="color:var(--text-4);">${k}</span><span style="color:${c};font-weight:500;">${v}</span>`
