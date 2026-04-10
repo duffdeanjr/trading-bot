@@ -23,7 +23,7 @@ from alpaca_local import client as alpaca, stream as alpaca_stream
 from agents import (
     boss, signal_generator, risk_manager,
     order_execution, account_agent, ref_library, diagnostics,
-    plan_manager, screener,
+    plan_manager, screener, backtester, plan_reviewer,
 )
 
 # ?? logging setup ?????????????????????????????????????????????
@@ -157,9 +157,11 @@ def main():
     t_boss = _start_thread(boss.run,            "boss")
     t_risk = _start_thread(risk_manager.run,    "risk_manager")
     t_exec = _start_thread(order_execution.run, "order_execution")
-    _all_threads.extend([t_boss, t_risk, t_exec])
-    logger.info("step 7: boss / risk_manager / order_execution started")
-    logger.info("all agents running ? bot is live")
+    t_wf   = _start_thread(backtester.walk_forward_loop, "walk_forward")
+    t_rev  = _start_thread(plan_reviewer.run,   "plan_reviewer")
+    _all_threads.extend([t_boss, t_risk, t_exec, t_wf, t_rev])
+    logger.info("step 7: boss / risk_manager / order_execution / walk_forward / plan_reviewer started")
+    logger.info("all agents running - bot is live")
 
     # ?? main thread: wait for shutdown ????????????????????????
     try:

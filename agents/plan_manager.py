@@ -9,7 +9,7 @@ import shared
 from config import settings
 from storage.database import (
     write_investment_plan, read_latest_plan, get_strategy_score,
-    get_closed_outcomes,
+    get_closed_outcomes, get_all_strategy_scores,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,94 @@ def _check_corp_action_exclusions(plan: dict, dirty: set = None) -> list:
     return exclusions
 
 
+def _kelly_size(strategy: str, conviction: float) -> float:
+    """
+    Compute position size using the Kelly criterion.
+    f = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+
+    Falls back to equal weighting (conviction * 0.10) if strategy history
+    has fewer than 10 trades.  Result is capped at MAX_PORTFOLIO_PCT.
+    """
+    score_row = get_strategy_score(strategy)
+
+    if not score_row or (score_row.get("trade_count") or 0) < 10:
+        # Insufficient history — fall back to equal weighting
+        return min(conviction * 0.10, settings.MAX_PORTFOLIO_PCT)
+
+    win_rate = score_row.get("win_rate", 0.5)
+    avg_pnl_pct = score_row.get("avg_pnl_pct", 0.0)
+
+    # We need avg_win and avg_loss separately. Estimate from outcomes.
+    closed = get_closed_outcomes(strategy=strategy, limit=100)
+    wins = [t for t in closed if (t.get("pnl") or 0) > 0]
+    losses = [t for t in closed if (t.get("pnl") or 0) <= 0]
+
+    if not wins or not losses:
+        return min(conviction * 0.10, settings.MAX_PORTFOLIO_PCT)
+
+    avg_win = sum(abs(t.get("pnl_pct", 0) or 0) for t in wins) / len(wins)
+    avg_loss = sum(abs(t.get("pnl_pct", 0) or 0) for t in losses) / len(losses)
+
+    if avg_win <= 0:
+        return min(conviction * 0.10, settings.MAX_PORTFOLIO_PCT)
+
+    # Kelly formula
+    kelly_f = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+
+    # Half-Kelly for safety, scaled by conviction
+    kelly_f = max(0.0, kelly_f * 0.5) * conviction
+
+    return min(kelly_f, settings.MAX_PORTFOLIO_PCT)
+
+
+def _detect_market_regime() -> str:
+    """
+    Detect market regime from VIX level and SPY 20-day momentum.
+    Returns one of: trending-bull, trending-bear, ranging, high-vol.
+    Writes result to shared.market_regime.
+    """
+    # Get VIX level
+    try:
+        from agents import risk_manager
+        vix = getattr(risk_manager, "_last_vix", None) or 18.0
+    except Exception:
+        vix = 18.0
+
+    # High-vol overrides everything
+    if vix >= settings.VIX_HIGH:
+        regime = "high-vol"
+        with shared.cache_lock:
+            shared.market_regime = regime
+        return regime
+
+    # Get SPY 20-day momentum
+    with shared.cache_lock:
+        spy_data = shared.historical_ohlcv.get("SPY", {})
+    closes = spy_data.get("closes", [])
+
+    if len(closes) >= 20:
+        current = closes[-1]
+        past = closes[-20]
+        if past > 0:
+            momentum = (current - past) / past
+        else:
+            momentum = 0.0
+    else:
+        momentum = 0.0
+
+    # Classify regime
+    if momentum > 0.03:       # >3% gain over 20 days
+        regime = "trending-bull"
+    elif momentum < -0.03:    # >3% loss over 20 days
+        regime = "trending-bear"
+    else:
+        regime = "ranging"
+
+    with shared.cache_lock:
+        shared.market_regime = regime
+    return regime
+
+
 def _compute_stance(signals: list) -> str:
     if not signals:
         return "neutral"
@@ -202,7 +290,7 @@ def update_plan(signals: list, trigger: str = "signal_batch") -> dict:
             if sym not in plan["symbols"]:
                 plan["symbols"][sym] = {
                     "conviction":  conf,
-                    "target_pct":  min(conf * 0.10, settings.MAX_PORTFOLIO_PCT),
+                    "target_pct":  _kelly_size(strategy, conf),
                     "sector":      sector,
                     "strategy":    strategy,
                     "reason":      f"{strategy} conf={conf:.2f} sent={sentiment_val:.2f}",
@@ -562,6 +650,11 @@ def run():
             # Every REVIEW_INTERVAL: continuous analysis of positions + opportunities
             if now - last_review >= REVIEW_INTERVAL:
                 if shared.ref_ready_event.is_set() and shared.account_ready_event.is_set():
+                    try:
+                        regime = _detect_market_regime()
+                        logger.debug(f"plan_manager: detected regime={regime}")
+                    except Exception as e:
+                        logger.debug(f"plan_manager: regime detection error: {e}")
                     _continuous_review()
                     last_review = now
         except Exception as e:

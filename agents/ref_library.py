@@ -228,6 +228,40 @@ def _process_dirty_symbols():
         _fetch_historical(list(dirty))
 
 # -- full load --
+def _fetch_vix():
+    """Fetch VIX proxy data (VIXY ETF) and update risk_manager._last_vix."""
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+        from agents import risk_manager
+
+        client = StockHistoricalDataClient(settings.APCA_KEY, settings.APCA_SECRET)
+        end = datetime.datetime.now(datetime.timezone.utc)
+        start = end - datetime.timedelta(days=5)
+        req = StockBarsRequest(
+            symbol_or_symbols=["VIXY"],
+            timeframe=TimeFrame.Day,
+            start=start, end=end,
+            feed=settings.DATA_FEED,
+        )
+        bars = client.get_stock_bars(req)
+        for sym, bar_list in _iter_barset(bars):
+            if bar_list:
+                # VIXY price roughly tracks VIX; scale accordingly
+                # VIXY ~$15-20 when VIX ~18, ~$30+ when VIX ~35
+                last_close = float(getattr(bar_list[-1], 'close', 0) or 0)
+                if last_close > 0:
+                    # Approximate VIX from VIXY: VIX ~ VIXY * 1.2
+                    approx_vix = last_close * 1.2
+                    risk_manager.update_vix(approx_vix)
+                    logger.info(f"ref_library: VIX proxy update from VIXY=${last_close:.2f} -> VIX~{approx_vix:.1f}")
+                    return
+        logger.debug("ref_library: VIXY bars empty, VIX unchanged")
+    except Exception as e:
+        logger.debug(f"ref_library: VIX fetch failed (non-critical): {e}")
+
+
 def _full_load():
     logger.info("ref_library: starting full cache load")
     _fetch_assets()
@@ -247,6 +281,7 @@ def _full_load():
     _fetch_historical(wl)
     _fetch_news(wl if wl else None)
     _fetch_option_chains(wl)
+    _fetch_vix()
     database.purge_old_data(days=settings.RETENTION_DAYS)
     logger.info("ref_library: full cache load complete")
 

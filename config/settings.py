@@ -77,6 +77,18 @@ VIX_EXTREME = float(os.getenv("VIX_EXTREME", "45"))
 HEAT_MAX    = float(os.getenv("HEAT_MAX", "0.70"))   # keep 30% free for options
 HEAT_WARN   = float(os.getenv("HEAT_WARN", "0.60"))
 
+# ── market regime strategy map ────────────────────────────────
+# Maps each detected regime to the list of strategy tags that are active.
+# Signal generator will skip strategies not in the active list.
+REGIME_STRATEGY_MAP = {
+    "trending-bull":  ["rsi_oversold", "macd_cross", "bb_bounce", "crypto_momentum",
+                       "covered_call", "cash_secured_put", "review_discovery"],
+    "trending-bear":  ["rsi_overbought", "iron_condor", "cash_secured_put", "crypto_momentum"],
+    "ranging":        ["bb_bounce", "iron_condor", "covered_call", "cash_secured_put",
+                       "calendar_spread", "rsi_oversold", "rsi_overbought"],
+    "high-vol":       ["iron_condor", "rsi_overbought", "cash_secured_put"],
+}
+
 # ── dashboard ────────────────────────────────────────────────
 DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5050"))
 

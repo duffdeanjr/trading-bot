@@ -1,5 +1,5 @@
 # Trading Bot — System Handoff Summary
-**Last updated:** 2026-04-08  
+**Last updated:** 2026-04-10  
 **Bot location:** `C:\Users\duffd\OneDrive\Desktop\Claude IO\trading-bot\`
 
 ---
@@ -64,7 +64,7 @@ trading-bot/
 ├── bot.log                  # Log output when running with > bot.log 2>&1
 ├── .env                     # API credentials (APCA_API_KEY_ID, APCA_API_SECRET_KEY)
 ├── env.example              # Template for .env
-├── requirements.txt         # alpaca-py>=0.38.0, python-dotenv>=1.0.0
+├── requirements.txt         # alpaca-py, python-dotenv, transformers, torch, anthropic
 ├── CLAUDE.md                # Claude Code guidance file
 ├── config/
 │   └── settings.py          # All constants and configuration (env-var overridable)
@@ -84,10 +84,11 @@ trading-bot/
 │   ├── boss.py              # Market clock, extended hours, watchlist resolution
 │   ├── diagnostics.py       # Stream health, agent crashes, rate limit management
 │   ├── indicators.py        # Pure functions: RSI, MACD, ATR, VWAP, Bollinger, EMA
-│   ├── sentiment.py         # Keyword-weighted NLP sentiment scoring (negation + intensifiers)
-│   ├── iv_engine.py         # Black-Scholes IV solver, IVR/IVP, regime detection
+│   ├── sentiment.py         # FinBERT sentiment (ProsusAI/finbert) with keyword fallback
+│   ├── iv_engine.py         # Black-Scholes IV solver, IVR/IVP, regime detection, options flow alerts
 │   ├── options_strategies.py# Iron condor, covered call, CSP, calendar spread, auto-roll
-│   ├── backtester.py        # Offline backtester using SQLite OHLCV, seeds strategy scores
+│   ├── backtester.py        # Offline backtester + walk-forward daily auto-evaluation
+│   ├── plan_reviewer.py     # Claude API plan review agent (hourly during market hours)
 │   └── alpaca/              # OLD wrappers (not used — superseded by alpaca_local/)
 │       ├── client.py
 │       └── stream.py
@@ -149,7 +150,7 @@ All settings are overridable via environment variables or `.env`.
 5. `ref_library` starts → `ref_ready_event` fires (always, even on partial error)
 6. `alpaca_local/stream.py` starts 5 streams → `stream_ready_event` fires
 7. `account_agent`, `diagnostics`, `signal_generator`, `plan_manager` start → `account_ready_event` fires
-8. `boss`, `risk_manager`, `order_execution` start — bot is live
+8. `boss`, `risk_manager`, `order_execution`, `walk_forward`, `plan_reviewer` start — bot is live
 
 ### Data Flow
 ```
@@ -235,6 +236,75 @@ Checks run before every order via `approve(signal)`:
 
 ---
 
+## Recent Upgrades (2026-04-10)
+
+### 1. FinBERT Sentiment (`agents/sentiment.py`)
+- Replaced keyword-weighted scoring with ProsusAI/finbert HuggingFace model
+- Model loads once at module import; falls back to keyword scoring if transformers/torch unavailable
+- Same public API: `score_text()`, `score_headline()`, `score_news_events()` all return floats in [-1, 1]
+- New dependencies: `transformers>=4.30.0`, `torch>=2.0.0`
+
+### 2. Options Flow Signal (`agents/iv_engine.py` + `agents/signal_generator.py`)
+- `iv_engine.detect_unusual_flow(symbols)` scans option chains for:
+  - Put/call ratio >2 standard deviations from 20-day average
+  - Single-trade notional exceeding $500k
+- Writes alerts to `shared.options_flow_alerts` (guarded by `cache_lock`)
+- `signal_generator.py` boosts conviction by 0.15 for signals aligned with flow direction
+
+### 3. Kelly Criterion Sizing (`agents/plan_manager.py`)
+- `_kelly_size(strategy, conviction)` replaces linear `conf * 0.10` normalization
+- Formula: `f = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win`
+- Uses half-Kelly (f * 0.5) scaled by conviction for safety
+- Falls back to equal weighting if strategy has <10 trades in `strategy_scores` table
+- Capped at `settings.MAX_PORTFOLIO_PCT`
+
+### 4. Regime-Aware Plan Switching (`agents/plan_manager.py` + `config/settings.py`)
+- `_detect_market_regime()` classifies from VIX level + SPY 20-day momentum:
+  - `trending-bull` (SPY momentum >3%), `trending-bear` (<-3%), `ranging`, `high-vol` (VIX >= VIX_HIGH)
+- `REGIME_STRATEGY_MAP` in `config/settings.py` maps each regime to active strategy tags
+- `signal_generator.py` skips strategies not in the active list for the current regime
+- Regime stored in `shared.market_regime` (guarded by `cache_lock`)
+
+### 5. Walk-Forward Auto-Disable (`agents/backtester.py`)
+- `walk_forward_evaluate()` runs a 30-day rolling evaluation on each strategy tag
+- Computes Sharpe, win_rate from the `outcomes` table, writes to `strategy_scores`
+- Auto-disables strategy (score=0) if rolling Sharpe < -0.5 for 3 consecutive evaluations
+- `walk_forward_loop()` runs as a daemon thread, evaluating once per day
+- Wired into `main.py` as `walk_forward` thread
+
+### 6. Claude API Plan Review (`agents/plan_reviewer.py`)
+- New agent running as daemon thread, hourly during market hours
+- Assembles JSON summary: current plan targets, last 20 signals, open positions, today's P&L, regime
+- Calls Claude API (`claude-sonnet-4-20250514`) with quantitative risk reviewer system prompt
+- Expects structured JSON response: `{issues: [], suggestions: [], confidence: 0-1}`
+- Writes response to `shared.plan_review`, logs to `agent_logs`
+- Requires `ANTHROPIC_API_KEY` env var; gracefully skips if not set
+- New dependency: `anthropic>=0.30.0`
+
+### VIX Live Feed (`agents/ref_library.py`)
+- `_fetch_vix()` fetches VIXY ETF daily bars and approximates VIX
+- Calls `risk_manager.update_vix()` on each full load and scheduled refresh
+- Fixes Known Issue #5 (VIX was defaulting to 18.0)
+
+### Dashboard Updates (`dashboard.py` + `dashboard.html`)
+- API now returns `market_regime`, `flow_alerts`, `plan_review`, `heat_status`
+- Agent status list includes `walk_forward` and `plan_reviewer`
+- **New header badge**: Market regime indicator (color-coded)
+- **New Dashboard row**: 3-card section with Market Regime, Options Flow Alerts, AI Plan Review
+- **Alert banner**: Now shows options flow alerts (P/C deviation, large notional)
+- **Risk gauges**: Added size multiplier gauge
+- **Investment plan**: Shows per-symbol conviction, Kelly-sized target %, strategy tag, and regime in badge
+- **Org chart**: Added Backtester and AI Review agent nodes (row 3)
+
+### New `shared.py` Fields (all guarded by `cache_lock`)
+| Field | Owner | Purpose |
+|-------|-------|---------|
+| `options_flow_alerts` | iv_engine | Unusual options activity alerts |
+| `plan_review` | plan_reviewer | Latest Claude API review response |
+| `market_regime` | plan_manager | Current detected regime |
+
+---
+
 ## Known Issues / Next Steps
 1. **`alpaca/` folder** — there are two client/stream implementations: `alpaca/` (old, unused) and `alpaca_local/` (current). The `alpaca/` folder can be deleted to reduce confusion.
 
@@ -242,9 +312,9 @@ Checks run before every order via `approve(signal)`:
 
 3. **Stream heartbeat warnings** — `trade` and `news` streams show silent warnings after ~60s of inactivity. Normal when no fills/news arrive. Not a real error.
 
-4. **Sentiment is keyword-based** — `agents/sentiment.py` uses a weighted lexicon. Could be upgraded to FinBERT for better accuracy.
+4. ~~**Sentiment is keyword-based**~~ — **RESOLVED**: Now uses ProsusAI/finbert with keyword fallback.
 
-5. **No VIX data feed** — `risk_manager._last_vix` defaults to 18.0 and is only updated if something calls `update_vix()`. Consider fetching VIX from a data source and calling this on each ref refresh.
+5. ~~**No VIX data feed**~~ — **RESOLVED**: `ref_library._fetch_vix()` now fetches VIXY ETF bars and calls `risk_manager.update_vix()` on each full load/refresh cycle.
 
 6. **`shared.trading_paused`** — referenced in `dashboard.py` exec handlers but not declared in `shared.py`. Add `trading_paused = False` to `shared.py` if using the dashboard pause feature.
 

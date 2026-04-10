@@ -317,10 +317,22 @@ def _emit_equity_signals(symbols: list) -> list:
                     sig["confidence"] = 0.60
                     signals_for_symbol.append(sig)
 
+        # Get active strategies for current regime
+        with shared.cache_lock:
+            current_regime = getattr(shared, "market_regime", "unknown")
+        active_strategies = settings.REGIME_STRATEGY_MAP.get(current_regime)
+
         # Adjust confidence by strategy score, deduplicate, log to DB, add to batch
         for sig in signals_for_symbol:
             key_side = sig.get("side", "buy")
             key_strat = sig.get("strategy", "unknown")
+
+            # Skip strategies not active for the current regime
+            if active_strategies is not None and key_strat not in active_strategies:
+                logger.debug(f"signal_generator: skipping {key_strat} for {symbol} "
+                             f"(not active in {current_regime} regime)")
+                continue
+
             if not _already_emitted(symbol, key_side, key_strat):
                 sig["confidence"] = _adjust_confidence(sig.get("confidence", 0.5), key_strat)
                 database.write_signal(
@@ -383,6 +395,38 @@ def _check_rolls() -> list:
         return []
 
 
+# -- options flow conviction boost --------------------------------------------
+def _apply_flow_boost(signals: list):
+    """Boost conviction by 0.15 for signals aligned with options flow direction."""
+    with shared.cache_lock:
+        alerts = list(getattr(shared, "options_flow_alerts", []))
+    if not alerts:
+        return
+
+    # Build a map: symbol -> flow direction (bullish/bearish)
+    flow_map = {}
+    for alert in alerts:
+        sym = alert.get("symbol")
+        direction = alert.get("direction")
+        if sym and direction:
+            flow_map[sym] = direction
+
+    for sig in signals:
+        sym = sig.get("symbol")
+        side = sig.get("side")
+        if sym not in flow_map:
+            continue
+        flow_dir = flow_map[sym]
+        aligned = (side == "buy" and flow_dir == "bullish") or \
+                  (side == "sell" and flow_dir == "bearish")
+        if aligned:
+            old_conf = sig.get("confidence", 0.5)
+            sig["confidence"] = min(round(old_conf + 0.15, 3), 1.0)
+            sig["flow_boost"] = True
+            logger.debug(f"signal_generator: flow boost {sym} {side} "
+                         f"{old_conf:.3f} -> {sig['confidence']:.3f}")
+
+
 # -- main loop ----------------------------------------------------------------
 def run():
     logger.info("signal_generator: starting")
@@ -400,10 +444,19 @@ def run():
         symbols = _get_watchlist()
         _refresh_strategy_scores()
 
+        # Detect unusual options flow and boost aligned signals
+        try:
+            iv_engine.detect_unusual_flow(symbols)
+        except Exception as e:
+            logger.debug(f"signal_generator: options flow detection error: {e}")
+
         equity_signals = _emit_equity_signals(symbols)
         crypto_signals = _emit_crypto_signals()
         roll_signals   = _check_rolls() if shared.MARKET_OPEN else []
         all_signals    = equity_signals + crypto_signals + roll_signals
+
+        # Boost conviction for signals aligned with options flow
+        _apply_flow_boost(all_signals)
 
         # Separate options signals (need direct order execution) from equity/crypto
         # (go through plan → rebalance path)

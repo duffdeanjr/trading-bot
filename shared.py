@@ -58,6 +58,15 @@ screener_candidates = {}   # OWNER: screener  {symbol: {"score": float, "ts": fl
 screener_demotions  = []   # OWNER: screener  [symbol, ...]
 screener_last_run   = 0.0  # OWNER: screener  (timestamp of last completed scan)
 
+# ── options flow alerts — guarded by cache_lock ────────────────
+options_flow_alerts = []  # OWNER: iv_engine.detect_unusual_flow()
+
+# ── plan review — guarded by cache_lock ────────────────────────
+plan_review = {}  # OWNER: plan_reviewer agent
+
+# ── market regime — guarded by cache_lock ──────────────────────
+market_regime = "unknown"  # OWNER: plan_manager (trending-bull, trending-bear, ranging, high-vol)
+
 # ── dirty symbols — guarded by cache_lock ─────────────────────
 # account_agent writes symbol here when a corp action NTA event is detected.
 # ref_library reads and re-fetches bars for that symbol, then clears the entry.
