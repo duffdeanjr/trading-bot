@@ -77,7 +77,7 @@ a { color: var(--cyan); text-decoration: none; }
 }
 @keyframes pulse { 0%,100%{ opacity:1; } 50%{ opacity:0.3; } }
 .badge {
-  font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 20px;
+  font-size: 13px; font-weight: 600; padding: 5px 14px; border-radius: 20px;
   letter-spacing: 0.5px; text-transform: uppercase;
 }
 .badge-live { background: var(--green-dim); color: var(--green); }
@@ -87,7 +87,7 @@ a { color: var(--cyan); text-decoration: none; }
 .header-right { display: flex; align-items: center; gap: 14px; }
 .clock { font-family: var(--font-mono); font-size: 15px; color: var(--text-2); }
 .btn-emergency {
-  padding: 8px 18px; border-radius: var(--radius-xs); font-size: 13px; font-weight: 600;
+  padding: 9px 20px; border-radius: var(--radius-xs); font-size: 14px; font-weight: 600;
   color: var(--red); background: var(--red-dim); border: 1px solid rgba(255,68,102,0.3);
   cursor: pointer; transition: all 0.2s;
 }
@@ -112,24 +112,24 @@ a { color: var(--cyan); text-decoration: none; }
 /* ── Cards ─────────────────────────────────────────────────── */
 .card {
   background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px; transition: border-color 0.2s;
+  border-radius: var(--radius); padding: 20px; transition: border-color 0.2s;
   overflow: hidden; min-width: 0;
 }
 .card:hover { border-color: var(--border-hover); }
 .card-label {
-  font-size: 11px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 1.2px; color: var(--text-3); margin-bottom: 8px;
+  font-size: 13px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--text-3); margin-bottom: 10px;
 }
-.card-value { font-size: 28px; font-weight: 700; color: var(--text-1); }
-.card-sub { font-size: 13px; color: var(--text-2); margin-top: 4px; }
+.card-value { font-size: 32px; font-weight: 700; color: var(--text-1); }
+.card-sub { font-size: 14px; color: var(--text-2); margin-top: 4px; }
 
 /* ── Grids ─────────────────────────────────────────────────── */
-.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
-.grid-5 { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
-.grid-2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
-.grid-3-2 { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; }
-.mb { margin-bottom: 16px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+.grid-5 { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+.grid-2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+.grid-3-2 { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; }
+.mb { margin-bottom: 18px; }
 
 /* ── Alert Banner ──────────────────────────────────────────── */
 .alert-banner {
@@ -145,15 +145,16 @@ a { color: var(--cyan); text-decoration: none; }
 
 /* ── Metric Stat ───────────────────────────────────────────── */
 .stat-card { text-align: center; }
-.stat-card .card-value { font-size: 24px; }
+.stat-card .card-value { font-size: 28px; }
+.stat-card .card-label { font-size: 13px; }
 
 /* ── Positions Table ───────────────────────────────────────── */
-.pos-table { width: 100%; font-size: 14px; border-collapse: collapse; }
+.pos-table { width: 100%; font-size: 15px; border-collapse: collapse; }
 .pos-table th {
-  text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 1px; color: var(--text-3); padding: 6px 0 10px; border-bottom: 1px solid var(--border);
+  text-align: left; font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text-3); padding: 8px 0 12px; border-bottom: 1px solid var(--border);
 }
-.pos-table td { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-1); }
+.pos-table td { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-1); }
 .pos-table .sym { font-weight: 600; }
 .pos-table .sym-crypto { color: var(--amber); }
 .pos-table .sym-stock { color: var(--cyan); }
@@ -168,7 +169,7 @@ a { color: var(--cyan); text-decoration: none; }
 
 /* ── Donut Chart (CSS) ─────────────────────────────────────── */
 .donut-wrap { display: flex; align-items: center; gap: 16px; }
-.donut-legend { font-size: 13px; }
+.donut-legend { font-size: 14px; }
 .donut-legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .donut-swatch { width: 10px; height: 10px; border-radius: 3px; }
 
@@ -180,8 +181,8 @@ a { color: var(--cyan); text-decoration: none; }
 }
 .org-node-ceo { border-color: rgba(0,255,136,0.2); background: rgba(0,255,136,0.04); }
 .org-node svg { display: block; margin: 0 auto 6px; }
-.org-node-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
-.org-node-role { font-size: 11px; color: var(--text-3); }
+.org-node-name { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.org-node-role { font-size: 13px; color: var(--text-3); }
 .org-line { width: 1px; height: 16px; background: rgba(0,255,136,0.15); margin: 0 auto; }
 .org-hline { width: 60%; height: 1px; background: rgba(0,255,136,0.1); margin: 0 auto; }
 .org-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; }
@@ -195,9 +196,9 @@ a { color: var(--cyan); text-decoration: none; }
 .dot-err { background: var(--red); }
 
 /* ── Trade Log ─────────────────────────────────────────────── */
-.trade-table { width: 100%; font-size: 13px; border-collapse: collapse; font-family: var(--font-mono); }
+.trade-table { width: 100%; font-size: 14px; border-collapse: collapse; font-family: var(--font-mono); }
 .trade-table th {
-  text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase;
+  text-align: left; font-size: 12px; font-weight: 600; text-transform: uppercase;
   letter-spacing: 1px; color: var(--text-3); padding: 6px 10px 8px 0;
 }
 .trade-table td { padding: 7px 10px 7px 0; color: var(--text-2); }
@@ -206,7 +207,7 @@ a { color: var(--cyan); text-decoration: none; }
 
 /* ── Uptime Bars ───────────────────────────────────────────── */
 .uptime-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.uptime-label { width: 75px; font-size: 12px; color: var(--text-1); flex-shrink: 0; }
+.uptime-label { width: 85px; font-size: 14px; color: var(--text-1); flex-shrink: 0; }
 .uptime-bar {
   flex: 1; height: 10px; background: rgba(255,255,255,0.04);
   border-radius: 3px; overflow: hidden; display: flex;
@@ -216,18 +217,18 @@ a { color: var(--cyan); text-decoration: none; }
 .up-warn { background: var(--amber); opacity: 0.6; }
 
 /* ── Stream Health ─────────────────────────────────────────── */
-.stream-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.stream-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 14px; }
 .stream-name { width: 70px; color: var(--text-1); }
 .stream-bar { flex: 1; }
-.stream-time { font-size: 11px; color: var(--text-3); min-width: 55px; text-align: right; }
+.stream-time { font-size: 13px; color: var(--text-3); min-width: 55px; text-align: right; }
 
 /* ── Error Log ─────────────────────────────────────────────── */
 .err-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .err-item:last-child { border-bottom: none; }
-.err-head { display: flex; justify-content: space-between; font-size: 13px; }
+.err-head { display: flex; justify-content: space-between; font-size: 14px; }
 .err-msg { color: var(--amber); font-weight: 500; }
-.err-time { color: var(--text-3); font-family: var(--font-mono); font-size: 12px; }
-.err-detail { color: var(--text-2); font-size: 12px; margin-top: 3px; }
+.err-time { color: var(--text-3); font-family: var(--font-mono); font-size: 13px; }
+.err-detail { color: var(--text-2); font-size: 13px; margin-top: 3px; }
 
 /* ── Scrollable ────────────────────────────────────────────── */
 .scroll-y { max-height: 260px; overflow-y: auto; }
@@ -237,7 +238,7 @@ a { color: var(--cyan); text-decoration: none; }
 
 /* ── Show More Link ────────────────────────────────────────── */
 .show-more {
-  text-align: center; margin-top: 10px; font-size: 13px;
+  text-align: center; margin-top: 10px; font-size: 14px;
   color: var(--green); opacity: 0.7; cursor: pointer;
 }
 
