@@ -15,19 +15,26 @@ from agents import indicators, iv_engine, sentiment, options_strategies, plan_ma
 
 logger = logging.getLogger(__name__)
 
-_signals_emitted: set = set()
+_signals_emitted: dict = {}   # key -> timestamp of last emission
 _signals_lock    = threading.Lock()
+_SIGNAL_COOLDOWN = 300  # seconds before same signal can fire again
 
-def _clear_signals_emitted():
+def _clear_stale_signals():
+    """Remove signals older than _SIGNAL_COOLDOWN so they can re-fire."""
+    cutoff = time.time() - _SIGNAL_COOLDOWN
     with _signals_lock:
-        _signals_emitted.clear()
+        stale = [k for k, ts in _signals_emitted.items() if ts < cutoff]
+        for k in stale:
+            del _signals_emitted[k]
 
 def _already_emitted(symbol, side, strategy) -> bool:
     key = (symbol, side, strategy)
+    now = time.time()
     with _signals_lock:
-        if key in _signals_emitted:
+        last_ts = _signals_emitted.get(key)
+        if last_ts and (now - last_ts) < _SIGNAL_COOLDOWN:
             return True
-        _signals_emitted.add(key)
+        _signals_emitted[key] = now
         return False
 
 # -- stream data stores -------------------------------------------------------
@@ -133,7 +140,7 @@ def _emit_equity_signals(symbols: list) -> list:
     if not (shared.MARKET_OPEN or shared.EXTENDED_HOURS):
         return []
 
-    _clear_signals_emitted()
+    _clear_stale_signals()
     batch = []
 
     with _data_lock:
