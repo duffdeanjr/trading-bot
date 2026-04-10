@@ -1330,17 +1330,25 @@ function renderPlan(plan) {
   const version = plan.version || '—';
   $('planBadge').textContent = `v${version} · ${stance.toUpperCase()}`;
 
-  const targets = plan.targets || {};
-  if (Object.keys(targets).length === 0) {
+  // Plan stores targets in plan.symbols (each entry has target_pct, conviction, strategy)
+  const symbols = plan.symbols || plan.targets || {};
+  if (Object.keys(symbols).length === 0) {
     $('planTargets').innerHTML = '<div style="color:var(--text-4);font-size:12px;">No targets set</div>';
     return;
   }
-  $('planTargets').innerHTML = Object.entries(targets).map(([name, target]) =>
-    `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);">
+  $('planTargets').innerHTML = Object.entries(symbols).map(([name, entry]) => {
+    const target = typeof entry === 'object' ? (entry.target_pct * 100).toFixed(1) + '%' : (typeof entry === 'number' ? entry + '%' : entry);
+    const conv = typeof entry === 'object' ? entry.conviction : null;
+    const strat = typeof entry === 'object' ? entry.strategy : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);">
       <span style="color:var(--text-2);font-size:12px;">${name}</span>
-      <span style="color:var(--text-1);font-size:12px;">${typeof target === 'number' ? target + '%' : target}</span>
-    </div>`
-  ).join('');
+      <div style="text-align:right;">
+        <span style="color:var(--green);font-size:12px;font-weight:600;">${target}</span>
+        ${conv != null ? `<span style="color:var(--text-4);font-size:11px;margin-left:8px;">conv ${conv.toFixed(2)}</span>` : ''}
+        ${strat ? `<span style="color:var(--text-4);font-size:10px;margin-left:6px;">${strat}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function renderSignalConfidence(signals) {
