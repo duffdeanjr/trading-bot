@@ -460,18 +460,10 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Trading Parameters (always-visible inline edit) -->
-    <div class="card" id="paramsPanel">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <span class="card-label" style="margin:0;">Trading Parameters</span>
-        <div>
-          <span id="paramsSaveStatus" style="color:var(--green);font-size:12px;margin-right:8px;display:none;"></span>
-          <button id="btnSaveParams" onclick="saveParams()" style="padding:5px 14px;font-size:12px;font-weight:600;background:rgba(0,255,136,0.08);color:var(--green);border:1px solid rgba(0,255,136,0.2);border-radius:6px;cursor:pointer;display:none;">Save Changes</button>
-        </div>
-      </div>
-      <div id="paramsGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
-        <!-- Populated by JS -->
-      </div>
+    <!-- Order Rejections (moved from Command tab) -->
+    <div class="card mb">
+      <div class="card-label">Order rejections (risk manager)</div>
+      <canvas id="chartRejections" height="100"></canvas>
     </div>
 
     <!-- Trade Log -->
@@ -541,19 +533,27 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Agent Uptime / Order Rejections -->
-    <div class="grid-2 mb">
-      <div class="card">
-        <div class="card-label">Agent uptime (24h)</div>
-        <div id="agentUptime"></div>
-        <div style="display:flex;justify-content:space-between;margin-top:6px;">
-          <span style="color:var(--text-4);font-size:8px;">24h ago</span>
-          <span style="color:var(--text-4);font-size:8px;">now</span>
+    <!-- Agent Uptime -->
+    <div class="card mb">
+      <div class="card-label">Agent uptime (24h)</div>
+      <div id="agentUptime"></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;">
+        <span style="color:var(--text-4);font-size:8px;">24h ago</span>
+        <span style="color:var(--text-4);font-size:8px;">now</span>
+      </div>
+    </div>
+
+    <!-- Trading Parameters (always-visible inline edit) -->
+    <div class="card mb" id="paramsPanel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <span class="card-label" style="margin:0;">Trading Parameters</span>
+        <div>
+          <span id="paramsSaveStatus" style="color:var(--green);font-size:12px;margin-right:8px;display:none;"></span>
+          <button id="btnSaveParams" onclick="saveParams()" style="padding:5px 14px;font-size:12px;font-weight:600;background:rgba(0,255,136,0.08);color:var(--green);border:1px solid rgba(0,255,136,0.2);border-radius:6px;cursor:pointer;display:none;">Save Changes</button>
         </div>
       </div>
-      <div class="card">
-        <div class="card-label">Order rejections (risk manager)</div>
-        <canvas id="chartRejections" height="100"></canvas>
+      <div id="paramsGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+        <!-- Populated by JS -->
       </div>
     </div>
 
@@ -972,9 +972,9 @@ function renderCharts() {
     renderDistribution(outcomes);
     renderSignalConfidence(signals);
     renderStrategyMix(trades);
+    renderRejections();
   }
   if (activeTab === 'command') {
-    renderRejections();
   }
   _chartsDrawn[activeTab] = true;
 }
@@ -1052,8 +1052,10 @@ function render() {
   renderPlan(plan);
   renderOptionsActivity(state.options_trades);
   renderScreenerActivity(state.screener_activity);
-  renderParams(state.parameters);
   renderTradeLog(trades);
+
+  // Command tab
+  renderParams(state.parameters);
 
   // Command text
   renderOrgChart();
