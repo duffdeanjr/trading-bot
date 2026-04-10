@@ -152,6 +152,33 @@ def api_data():
                 max_conc = pct
                 max_conc_sym = p.get("symbol", "")
 
+    # Current parameters snapshot
+    params = {
+        "max_position_size":   settings.MAX_POSITION_SIZE,
+        "max_portfolio_pct":   settings.MAX_PORTFOLIO_PCT * 100,
+        "margin_min_equity":   settings.MARGIN_MIN_EQUITY,
+        "max_daily_loss_pct":  settings.MAX_DAILY_LOSS_PCT * 100,
+        "max_consecutive_losses": settings.MAX_CONSECUTIVE_LOSSES,
+        "rsi_oversold":        settings.RSI_OVERSOLD,
+        "rsi_overbought":     settings.RSI_OVERBOUGHT,
+        "rebalance_threshold": settings.REBALANCE_THRESHOLD * 100,
+        "vix_caution":         settings.VIX_CAUTION,
+        "vix_high":            settings.VIX_HIGH,
+        "vix_extreme":         settings.VIX_EXTREME,
+        "heat_warn":           settings.HEAT_WARN * 100,
+        "heat_max":            settings.HEAT_MAX * 100,
+        "options_enabled":     settings.OPTIONS_ENABLED,
+        "options_level":       settings.OPTIONS_LEVEL,
+        "screener_enabled":    settings.SCREENER_ENABLED,
+        "screener_interval":   settings.SCREENER_INTERVAL,
+        "max_watchlist_size":  settings.MAX_WATCHLIST_SIZE,
+        "screener_promote":    settings.SCREENER_PROMOTE_THRESHOLD,
+        "screener_demote":     settings.SCREENER_DEMOTE_THRESHOLD,
+        "dry_run":             settings.DRY_RUN,
+        "tick_interval":       settings.TICK_INTERVAL,
+        "data_feed":           settings.DATA_FEED,
+    }
+
     return {
         "total_trades":      trades_summary.get("n") or 0,
         "total_volume":      round(trades_summary.get("vol") or 0, 2),
@@ -172,6 +199,7 @@ def api_data():
         "heat_status":       heat_status,
         "allocation":        allocation_pct,
         "concentration":     {"max_pct": round(max_conc * 100, 1), "symbol": max_conc_sym},
+        "parameters":        params,
     }
 
 
@@ -295,6 +323,46 @@ def exec_rollback_plan(handler):
         _json_response(handler, {"error": str(e)}, 500)
 
 
+def exec_update_parameters(handler):
+    """Update trading parameters at runtime."""
+    data = _read_body(handler)
+    updated = []
+    # Map of param name -> (settings attr, transform)
+    param_map = {
+        "max_position_size":      ("MAX_POSITION_SIZE",      float),
+        "max_portfolio_pct":      ("MAX_PORTFOLIO_PCT",       lambda v: float(v) / 100),
+        "margin_min_equity":      ("MARGIN_MIN_EQUITY",       float),
+        "max_daily_loss_pct":     ("MAX_DAILY_LOSS_PCT",      lambda v: float(v) / 100),
+        "max_consecutive_losses": ("MAX_CONSECUTIVE_LOSSES",  int),
+        "rsi_oversold":           ("RSI_OVERSOLD",            float),
+        "rsi_overbought":         ("RSI_OVERBOUGHT",          float),
+        "rebalance_threshold":    ("REBALANCE_THRESHOLD",     lambda v: float(v) / 100),
+        "vix_caution":            ("VIX_CAUTION",             float),
+        "vix_high":               ("VIX_HIGH",                float),
+        "vix_extreme":            ("VIX_EXTREME",             float),
+        "heat_warn":              ("HEAT_WARN",               lambda v: float(v) / 100),
+        "heat_max":               ("HEAT_MAX",                lambda v: float(v) / 100),
+        "options_enabled":        ("OPTIONS_ENABLED",         lambda v: v if isinstance(v, bool) else str(v).lower() == "true"),
+        "options_level":          ("OPTIONS_LEVEL",           int),
+        "screener_enabled":       ("SCREENER_ENABLED",        lambda v: v if isinstance(v, bool) else str(v).lower() == "true"),
+        "screener_interval":      ("SCREENER_INTERVAL",       int),
+        "max_watchlist_size":     ("MAX_WATCHLIST_SIZE",       int),
+        "screener_promote":       ("SCREENER_PROMOTE_THRESHOLD", float),
+        "screener_demote":        ("SCREENER_DEMOTE_THRESHOLD",  float),
+        "tick_interval":          ("TICK_INTERVAL",           int),
+    }
+    for key, val in data.items():
+        if key in param_map:
+            attr, transform = param_map[key]
+            try:
+                setattr(settings, attr, transform(val))
+                updated.append(key)
+            except Exception as e:
+                _json_response(handler, {"error": f"Invalid value for {key}: {e}"}, 400)
+                return
+    _json_response(handler, {"status": "ok", "updated": updated})
+
+
 POST_ROUTES = {
     "/api/exec/pause":           exec_pause,
     "/api/exec/resume":          exec_resume,
@@ -305,6 +373,7 @@ POST_ROUTES = {
     "/api/exec/risk-limits":     exec_update_risk_limits,
     "/api/exec/plan":            exec_update_plan,
     "/api/exec/plan-rollback":   exec_rollback_plan,
+    "/api/exec/parameters":      exec_update_parameters,
 }
 
 

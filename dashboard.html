@@ -448,6 +448,22 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
+    <!-- Trading Parameters -->
+    <div class="card" id="paramsPanel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <span class="card-label" style="margin:0;">Trading Parameters</span>
+        <div>
+          <button id="btnEditParams" onclick="toggleParamsEdit()" style="padding:5px 14px;font-size:12px;font-weight:600;background:rgba(0,255,136,0.08);color:var(--green);border:1px solid rgba(0,255,136,0.2);border-radius:6px;cursor:pointer;">Edit</button>
+          <button id="btnSaveParams" onclick="saveParams()" style="display:none;padding:5px 14px;font-size:12px;font-weight:600;background:rgba(0,255,136,0.15);color:var(--green);border:1px solid rgba(0,255,136,0.3);border-radius:6px;cursor:pointer;">Save</button>
+          <button id="btnCancelParams" onclick="cancelParamsEdit()" style="display:none;padding:5px 14px;font-size:12px;font-weight:600;background:rgba(255,255,255,0.05);color:var(--text-3);border:1px solid var(--border);border-radius:6px;cursor:pointer;margin-left:4px;">Cancel</button>
+        </div>
+      </div>
+      <div id="paramsView" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+        <!-- Populated by JS -->
+      </div>
+      <div id="paramsEdit" style="display:none;"></div>
+    </div>
+
     <!-- Trade Log -->
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -1015,6 +1031,7 @@ function render() {
   $('avgLoss').textContent = avgLoss != null ? fmtPnl(avgLoss) : '—';
   renderStrategyPerf(outcomes);
   renderPlan(plan);
+  renderParams(D.parameters);
   renderTradeLog(trades);
 
   // Command text
@@ -1359,6 +1376,159 @@ function renderSignalConfidence(signals) {
     ctx.fill();
   });
   ctx.globalAlpha = 1;
+}
+
+// ── Parameters Panel ─────────────────────────────────────────
+const PARAM_DEFS = [
+  { section: "Risk Limits", params: [
+    { key: "max_position_size",      label: "Max Position Size",       unit: "$",  type: "number", step: 500 },
+    { key: "max_portfolio_pct",      label: "Max Portfolio %",         unit: "%",  type: "number", step: 1 },
+    { key: "max_daily_loss_pct",     label: "Max Daily Loss",          unit: "%",  type: "number", step: 0.5 },
+    { key: "max_consecutive_losses", label: "Max Consecutive Losses",  unit: "",   type: "number", step: 1 },
+    { key: "heat_warn",              label: "Heat Warning",            unit: "%",  type: "number", step: 5 },
+    { key: "heat_max",               label: "Heat Maximum",            unit: "%",  type: "number", step: 5 },
+  ]},
+  { section: "Signal Thresholds", params: [
+    { key: "rsi_oversold",           label: "RSI Oversold",            unit: "",   type: "number", step: 1 },
+    { key: "rsi_overbought",         label: "RSI Overbought",         unit: "",   type: "number", step: 1 },
+    { key: "rebalance_threshold",    label: "Rebalance Threshold",    unit: "%",  type: "number", step: 0.5 },
+  ]},
+  { section: "VIX Regime", params: [
+    { key: "vix_caution",            label: "VIX Caution (size×0.75)", unit: "",   type: "number", step: 1 },
+    { key: "vix_high",               label: "VIX High (size×0.50)",    unit: "",   type: "number", step: 1 },
+    { key: "vix_extreme",            label: "VIX Extreme (size×0)",    unit: "",   type: "number", step: 1 },
+  ]},
+  { section: "Options", params: [
+    { key: "options_enabled",        label: "Options Enabled",         unit: "",   type: "toggle" },
+    { key: "options_level",          label: "Options Level",           unit: "",   type: "number", step: 1 },
+  ]},
+  { section: "Screener", params: [
+    { key: "screener_enabled",       label: "Screener Enabled",        unit: "",   type: "toggle" },
+    { key: "screener_interval",      label: "Scan Interval",           unit: "s",  type: "number", step: 60 },
+    { key: "max_watchlist_size",     label: "Max Watchlist",           unit: "",   type: "number", step: 5 },
+    { key: "screener_promote",       label: "Promote Threshold",       unit: "",   type: "number", step: 0.05 },
+    { key: "screener_demote",        label: "Demote Threshold",        unit: "",   type: "number", step: 0.05 },
+  ]},
+  { section: "Execution", params: [
+    { key: "tick_interval",          label: "Tick Interval",            unit: "s",  type: "number", step: 1 },
+    { key: "dry_run",                label: "Dry Run",                  unit: "",   type: "readonly" },
+    { key: "data_feed",              label: "Data Feed",                unit: "",   type: "readonly" },
+  ]},
+];
+
+let _paramsCache = {};
+let _paramsEditing = false;
+
+function renderParams(params) {
+  if (!params || _paramsEditing) return;
+  _paramsCache = { ...params };
+  const el = $('paramsView');
+  if (!el) return;
+  let html = '';
+  PARAM_DEFS.forEach(section => {
+    html += `<div style="min-width:0;">`;
+    html += `<div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);">${section.section}</div>`;
+    section.params.forEach(p => {
+      const val = params[p.key];
+      let display;
+      if (p.type === 'toggle') {
+        display = val ? '<span style="color:var(--green);">ON</span>' : '<span style="color:var(--red);">OFF</span>';
+      } else if (p.unit === '$') {
+        display = '$' + Number(val).toLocaleString();
+      } else {
+        display = val + (p.unit || '');
+      }
+      html += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">`;
+      html += `<span style="color:var(--text-3);">${p.label}</span>`;
+      html += `<span style="color:var(--text-1);font-weight:500;font-family:'JetBrains Mono',monospace;">${display}</span>`;
+      html += `</div>`;
+    });
+    html += `</div>`;
+  });
+  el.innerHTML = html;
+}
+
+function toggleParamsEdit() {
+  _paramsEditing = true;
+  $('btnEditParams').style.display = 'none';
+  $('btnSaveParams').style.display = '';
+  $('btnCancelParams').style.display = '';
+  $('paramsView').style.display = 'none';
+  const editEl = $('paramsEdit');
+  editEl.style.display = 'grid';
+  editEl.style.gridTemplateColumns = '1fr 1fr 1fr';
+  editEl.style.gap = '16px';
+  let html = '';
+  PARAM_DEFS.forEach(section => {
+    html += `<div style="min-width:0;">`;
+    html += `<div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);">${section.section}</div>`;
+    section.params.forEach(p => {
+      const val = _paramsCache[p.key];
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:13px;">`;
+      html += `<span style="color:var(--text-3);">${p.label}</span>`;
+      if (p.type === 'readonly') {
+        html += `<span style="color:var(--text-4);font-family:'JetBrains Mono',monospace;font-size:12px;">${val}${p.unit||''}</span>`;
+      } else if (p.type === 'toggle') {
+        const checked = val ? 'checked' : '';
+        html += `<label style="position:relative;width:36px;height:20px;display:inline-block;">`;
+        html += `<input type="checkbox" data-param="${p.key}" ${checked} style="opacity:0;width:0;height:0;">`;
+        html += `<span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:${val?'var(--green)':'rgba(255,255,255,0.1)'};border-radius:10px;transition:.2s;"></span>`;
+        html += `<span style="position:absolute;height:16px;width:16px;left:${val?'18px':'2px'};bottom:2px;background:white;border-radius:50%;transition:.2s;"></span>`;
+        html += `</label>`;
+      } else {
+        html += `<input type="number" data-param="${p.key}" value="${val}" step="${p.step||1}" style="width:80px;padding:4px 6px;font-size:12px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.05);color:var(--text-1);border:1px solid var(--border);border-radius:4px;text-align:right;">`;
+      }
+      html += `</div>`;
+    });
+    html += `</div>`;
+  });
+  editEl.innerHTML = html;
+  // Wire toggle clicks
+  editEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', function() {
+      const span = this.nextElementSibling;
+      const dot = span.nextElementSibling;
+      span.style.background = this.checked ? 'var(--green)' : 'rgba(255,255,255,0.1)';
+      dot.style.left = this.checked ? '18px' : '2px';
+    });
+  });
+}
+
+function cancelParamsEdit() {
+  _paramsEditing = false;
+  $('btnEditParams').style.display = '';
+  $('btnSaveParams').style.display = 'none';
+  $('btnCancelParams').style.display = 'none';
+  $('paramsView').style.display = 'grid';
+  $('paramsEdit').style.display = 'none';
+}
+
+async function saveParams() {
+  const editEl = $('paramsEdit');
+  const payload = {};
+  editEl.querySelectorAll('input[type="number"]').forEach(inp => {
+    payload[inp.dataset.param] = parseFloat(inp.value);
+  });
+  editEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    payload[cb.dataset.param] = cb.checked;
+  });
+  try {
+    const resp = await fetch(API + '/api/exec/parameters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      cancelParamsEdit();
+      // Force refresh
+      fetchData();
+    } else {
+      alert('Error: ' + (data.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Failed to save: ' + e.message);
+  }
 }
 
 function renderTradeLog(trades) {
