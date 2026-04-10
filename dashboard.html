@@ -943,12 +943,12 @@ function renderCharts() {
   hbCtx = null;
 
   if (activeTab === 'dashboard') {
-    renderIntradayChart(positions);
+    renderEquityCurve();
     renderSparkline();
     renderAllocation();
   }
   if (activeTab === 'performance') {
-    renderEquityCurve();
+    renderIntradayChart(positions);
     renderDailyPnl();
     renderDistribution(outcomes);
     renderSignalConfidence(signals);
