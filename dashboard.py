@@ -63,6 +63,35 @@ def api_data():
     scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
     plan_history = query("SELECT version, ts, trigger, summary FROM investment_plans ORDER BY version DESC LIMIT 10")
 
+    # Screener activity
+    screener_recent = query("""SELECT symbol, score, reasons, promoted, ts
+        FROM screener_scores ORDER BY ts DESC LIMIT 30""")
+
+    # Options trades
+    options_trades = query("""SELECT ts,symbol,side,qty,price,notional,strategy_tag
+        FROM trades WHERE length(symbol) > 10
+        OR strategy_tag IN ('iron_condor','covered_call','cash_secured_put','calendar_spread')
+        ORDER BY ts DESC LIMIT 20""")
+
+    # Portfolio history from Alpaca
+    portfolio_history_data = []
+    try:
+        import requests as _req
+        _headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        _r = _req.get(f'{settings.BASE_URL}/v2/account/portfolio/history?period=1M&timeframe=1D',
+                      headers=_headers, timeout=10)
+        if _r.status_code == 200:
+            _ph = _r.json()
+            _ts = _ph.get('timestamp', [])
+            _eq = _ph.get('equity', [])
+            _pnl = _ph.get('profit_loss', [])
+            portfolio_history_data = [
+                {"ts": _ts[i], "equity": _eq[i], "pnl": _pnl[i] if i < len(_pnl) else 0}
+                for i in range(len(_ts)) if _eq[i] and _eq[i] > 0
+            ]
+    except Exception:
+        pass
+
     plan_data = {}
     if plan_row and plan_row.get("plan_json"):
         try:
@@ -200,6 +229,10 @@ def api_data():
         "allocation":        allocation_pct,
         "concentration":     {"max_pct": round(max_conc * 100, 1), "symbol": max_conc_sym},
         "parameters":        params,
+        "portfolio_history": portfolio_history_data,
+        "screener_activity": screener_recent,
+        "options_trades":    options_trades,
+        "live_heat":         round(total_mv / equity * 100, 1) if equity > 0 else 0,
     }
 
 

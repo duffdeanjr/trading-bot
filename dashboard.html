@@ -328,9 +328,9 @@ a { color: var(--cyan); text-decoration: none; }
     <div class="grid-3 mb">
       <div class="card">
         <div class="card-label">Allocation</div>
-        <div class="donut-wrap">
-          <canvas id="chartAllocation" width="90" height="90"></canvas>
-          <div class="donut-legend" id="allocLegend"></div>
+        <div class="donut-wrap" style="justify-content:center;gap:16px;">
+          <canvas id="chartAllocation" width="140" height="140"></canvas>
+          <div class="donut-legend" id="allocLegend" style="font-size:13px;"></div>
         </div>
       </div>
       <div class="card">
@@ -445,6 +445,18 @@ a { color: var(--cyan); text-decoration: none; }
           <span style="color:var(--text-4);font-size:11px;">Green = profitable · Red = loss</span>
           <span style="color:var(--text-4);font-size:11px;">newest</span>
         </div>
+      </div>
+    </div>
+
+    <!-- Options Activity / Screener Discoveries -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Options Activity</div>
+        <div id="optionsActivity" style="max-height:200px;overflow-y:auto;"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Screener Discoveries</div>
+        <div id="screenerActivity" style="max-height:200px;overflow-y:auto;"></div>
       </div>
     </div>
 
@@ -717,8 +729,14 @@ async function fetchData() {
       concentration: raw.concentration || { max_pct: 0, symbol: '' },
       // Heat
       heat_status: raw.heat_status || {},
+      live_heat: raw.live_heat || 0,
       // Parameters
       parameters: raw.parameters || {},
+      // Portfolio history (real Alpaca data)
+      portfolio_history: raw.portfolio_history || [],
+      // Screener + Options
+      screener_activity: raw.screener_activity || [],
+      options_trades: (raw.options_trades || []).filter(t => t.qty > 0 && t.price > 0),
       // Errors from agent_logs
       errors: (raw.errors || []).map(e => ({
         msg: `${e.agent}: ${(e.message || '').substring(0, 60)}`,
@@ -759,8 +777,9 @@ function pnlClass(n) {
 function classifySymbol(sym) {
   if (!sym) return 'stock';
   const s = sym.toUpperCase();
+  if (s.length > 10) return 'option';
   if (s.includes('USD') || s.includes('BTC') || s.includes('ETH') || s.includes('PAX')) return 'crypto';
-  const etfs = ['SPY','QQQ','IWM','DIA','XLE','XLF','XLK','IEMG','SLV','GLD','COPX','RKLB','VTI','VOO'];
+  const etfs = ['SPY','QQQ','IWM','DIA','XLE','XLF','XLK','IEMG','SLV','GLD','COPX','RKLB','VTI','VOO','IGV','WEAT','BOIL','USO','TLT','HYG','LQD','XBI','ARKK','SOXX'];
   if (etfs.includes(s)) return 'etf';
   return 'stock';
 }
@@ -1031,6 +1050,8 @@ function render() {
   $('avgLoss').textContent = avgLoss != null ? fmtPnl(avgLoss) : '—';
   renderStrategyPerf(outcomes);
   renderPlan(plan);
+  renderOptionsActivity(state.options_trades);
+  renderScreenerActivity(state.screener_activity);
   renderParams(state.parameters);
   renderTradeLog(trades);
 
@@ -1097,8 +1118,8 @@ function renderPositions(positions) {
 function renderAllocation() {
   const alloc = state.allocation || {};
   if (Object.keys(alloc).length === 0) return;
-  const colorMap = { crypto: '#ffaa00', us_equity: '#00c8ff', Stocks: '#00c8ff', stock: '#00c8ff', etf: '#a78bfa', unknown: '#666' };
-  const nameMap = { crypto: 'Crypto', us_equity: 'Stocks', Stocks: 'Stocks', stock: 'Stocks', etf: 'ETFs', unknown: 'Other' };
+  const colorMap = { crypto: '#ffaa00', us_equity: '#00c8ff', Stocks: '#00c8ff', stock: '#00c8ff', etf: '#a78bfa', us_option: '#e879f9', option: '#e879f9', unknown: '#666' };
+  const nameMap = { crypto: 'Crypto', us_equity: 'Stocks', Stocks: 'Stocks', stock: 'Stocks', etf: 'ETFs', us_option: 'Options', option: 'Options', unknown: 'Other' };
   const segments = Object.entries(alloc)
     .filter(([, pct]) => pct > 0)
     .map(([cls, pct]) => ({
@@ -1108,7 +1129,7 @@ function renderAllocation() {
     })).sort((a, b) => b.pct - a.pct);
 
   if (segments.length > 0) {
-    drawDonut($('chartAllocation'), segments, 90);
+    drawDonut($('chartAllocation'), segments, 140);
     $('allocLegend').innerHTML = segments.map(s =>
       `<div class="donut-legend-item"><div class="donut-swatch" style="background:${s.color}"></div><span style="color:var(--text-2)">${s.label} ${Math.round(s.pct)}%</span></div>`
     ).join('');
@@ -1118,7 +1139,7 @@ function renderAllocation() {
 function renderRiskGauges(positions) {
   const conc = state.concentration || {};
   const heat = state.heat_status || {};
-  const heatPct = heat.portfolio_heat || heat.heat || 0;
+  const heatPct = state.live_heat || heat.portfolio_heat || heat.heat || 0;
   const vix = heat.vix || null;
 
   const gauges = [
@@ -1145,8 +1166,8 @@ function renderPnlByClass(positions) {
     const pnl = p.unrealized_pl || p.pnl || 0;
     classes[cls] = (classes[cls] || 0) + pnl;
   });
-  const colorMap = { crypto: '#ffaa00', stock: '#00c8ff', etf: '#a78bfa' };
-  const nameMap = { crypto: 'Crypto', stock: 'Stocks', etf: 'ETFs' };
+  const colorMap = { crypto: '#ffaa00', stock: '#00c8ff', etf: '#a78bfa', option: '#e879f9' };
+  const nameMap = { crypto: 'Crypto', stock: 'Stocks', etf: 'ETFs', option: 'Options' };
   const maxAbs = Math.max(...Object.values(classes).map(Math.abs), 1);
 
   $('pnlByClass').innerHTML = Object.entries(classes).sort((a, b) => b[1] - a[1]).map(([cls, pnl]) => `
@@ -1194,65 +1215,71 @@ function renderEquityCurve() {
   const ctx = clearCanvas(canvas);
   if (!ctx) return;
   const w = ctx._w, h = ctx._h;
-  // Generate curve from initial capital to current equity
-  const n = 30;
-  const equity = state.equity || 100000;
-  const initial = 100000; // paper trading starts at 100k
-  const pts = [];
-  // Seeded walk so it doesn't re-randomize every refresh
-  if (!window._eqSeed) window._eqSeed = Array.from({length: n}, (_, i) => Math.sin(i * 7.3 + 42) * 0.5);
-  let val = initial;
-  const totalChange = equity - initial;
-  for (let i = 0; i < n; i++) {
-    const progress = (i + 1) / n;
-    const target = initial + totalChange * progress;
-    val += (target - val) * 0.3 + window._eqSeed[i] * Math.abs(totalChange / n) * 3;
-    pts.push(val);
+  const pad = 45, padBot = 20;
+
+  // Use real portfolio history if available
+  const hist = state.portfolio_history || [];
+  let pts, timestamps;
+  if (hist.length >= 2) {
+    pts = hist.map(h => h.equity);
+    timestamps = hist.map(h => new Date(h.ts * 1000));
+  } else {
+    // Fallback: synthetic from initial to current
+    const n = 30, equity = state.equity || 100000;
+    pts = Array.from({length: n}, (_, i) => 100000 + (equity - 100000) * ((i+1)/n));
+    const today = new Date();
+    timestamps = Array.from({length: n}, (_, i) => { const d = new Date(today); d.setDate(d.getDate() - (n-1-i)); return d; });
   }
-  pts[pts.length - 1] = equity; // pin endpoint
+
+  const n = pts.length;
   const min = Math.min(...pts) - 50;
   const max = Math.max(...pts) + 50;
-  const pad = 40;
+  const range = max - min || 1;
+
   // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.03)';
   ctx.lineWidth = 0.5;
   for (let i = 0; i < 4; i++) {
-    const y = (i / 3) * (h - 10) + 5;
+    const y = (i / 3) * (h - padBot - 5) + 5;
     ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w, y); ctx.stroke();
   }
+
   // Y labels
   ctx.font = '9px JetBrains Mono';
-  ctx.fillStyle = '#333';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
   ctx.fillText('$' + Math.round(max).toLocaleString(), 0, 12);
-  ctx.fillText('$' + Math.round((max + min) / 2).toLocaleString(), 0, h / 2 + 3);
-  ctx.fillText('$' + Math.round(min).toLocaleString(), 0, h - 3);
-  // Line
-  const padBot = 18;
+  ctx.fillText('$' + Math.round((max + min) / 2).toLocaleString(), 0, (h - padBot) / 2 + 3);
+  ctx.fillText('$' + Math.round(min).toLocaleString(), 0, h - padBot - 2);
+
+  // Line points
   const linePoints = pts.map((v, i) => [
     pad + (i / (n - 1)) * (w - pad),
-    5 + (1 - (v - min) / (max - min)) * (h - padBot - 10)
+    5 + (1 - (v - min) / range) * (h - padBot - 10)
   ]);
+
+  const isUp = pts[pts.length - 1] >= pts[0];
+  const lineColor = isUp ? '#00ff88' : '#ff4466';
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(0,255,136,0.2)');
-  grad.addColorStop(1, 'rgba(0,255,136,0)');
-  drawLine(ctx, linePoints, '#00ff88', 2, grad);
+  grad.addColorStop(0, isUp ? 'rgba(0,255,136,0.2)' : 'rgba(255,68,102,0.2)');
+  grad.addColorStop(1, isUp ? 'rgba(0,255,136,0)' : 'rgba(255,68,102,0)');
+  drawLine(ctx, linePoints, lineColor, 2, grad);
+
   // Dot at end
   const last = linePoints[linePoints.length - 1];
   ctx.beginPath();
   ctx.arc(last[0], last[1], 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#00ff88';
+  ctx.fillStyle = lineColor;
   ctx.fill();
+
   // X-axis date labels
   ctx.font = '8px JetBrains Mono';
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-  const today = new Date();
-  const labelCount = 5;
+  const labelCount = Math.min(5, n);
   for (let i = 0; i < labelCount; i++) {
     const idx = Math.round(i * (n - 1) / (labelCount - 1));
     const x = linePoints[idx][0];
-    const d = new Date(today);
-    d.setDate(d.getDate() - (n - 1 - idx));
+    const d = timestamps[idx];
     const label = (d.getMonth() + 1) + '/' + d.getDate();
     ctx.fillText(label, x - 12, h - 3);
     ctx.beginPath(); ctx.moveTo(x, h - padBot); ctx.lineTo(x, h - padBot + 4); ctx.stroke();
@@ -1439,6 +1466,85 @@ const PARAM_DEFS = [
     { key: "data_feed",              label: "Data Feed",                unit: "",   type: "readonly" },
   ]},
 ];
+
+// ── Options Activity ─────────────────────────────────────────
+function renderOptionsActivity(trades) {
+  const el = $('optionsActivity');
+  if (!el) return;
+  if (!trades || trades.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-4);font-size:12px;padding:8px 0;">No options trades yet</div>';
+    return;
+  }
+  // Summarize: total premium collected, open/closed count
+  let premiumCollected = 0, premiumPaid = 0;
+  trades.forEach(t => {
+    const notional = Math.abs(t.notional || t.qty * t.price || 0);
+    if (t.side && t.side.toLowerCase().includes('sell')) premiumCollected += notional;
+    else premiumPaid += notional;
+  });
+  const net = premiumCollected - premiumPaid;
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+      <div style="text-align:center;padding:8px;background:rgba(0,255,136,0.05);border-radius:6px;">
+        <div style="font-size:11px;color:var(--text-4);text-transform:uppercase;">Collected</div>
+        <div style="font-size:16px;color:var(--green);font-weight:600;">$${premiumCollected.toFixed(0)}</div>
+      </div>
+      <div style="text-align:center;padding:8px;background:rgba(255,68,102,0.05);border-radius:6px;">
+        <div style="font-size:11px;color:var(--text-4);text-transform:uppercase;">Paid</div>
+        <div style="font-size:16px;color:var(--red);font-weight:600;">$${premiumPaid.toFixed(0)}</div>
+      </div>
+      <div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;">
+        <div style="font-size:11px;color:var(--text-4);text-transform:uppercase;">Net P&L</div>
+        <div style="font-size:16px;color:${net >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:600;">${net >= 0 ? '+' : ''}$${net.toFixed(0)}</div>
+      </div>
+    </div>
+    ${trades.slice(0, 8).map(t => {
+      const side = (t.side || '').replace('OrderSide.', '');
+      const isSell = side.toLowerCase().includes('sell');
+      const sym = (t.symbol || '').length > 15 ? t.symbol.substring(0, 4) + '...' + t.symbol.substring(t.symbol.length - 8) : t.symbol;
+      const time = t.ts ? new Date(t.ts * 1000).toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'}) : '';
+      return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--border);">
+        <span style="color:var(--text-3);">${time}</span>
+        <span style="color:${isSell ? 'var(--green)' : 'var(--red)'};font-weight:500;">${side}</span>
+        <span style="color:var(--text-2);font-family:'JetBrains Mono',monospace;">${sym}</span>
+        <span style="color:var(--text-1);">$${(t.price || 0).toFixed(2)}</span>
+      </div>`;
+    }).join('')}
+  `;
+}
+
+// ── Screener Discoveries ────────────────────────────────────
+function renderScreenerActivity(activity) {
+  const el = $('screenerActivity');
+  if (!el) return;
+  if (!activity || activity.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-4);font-size:12px;padding:8px 0;">No screener activity yet</div>';
+    return;
+  }
+  const promoted = activity.filter(a => a.promoted);
+  const scanned = activity.length;
+  el.innerHTML = `
+    <div style="display:flex;gap:12px;margin-bottom:12px;">
+      <div style="flex:1;text-align:center;padding:8px;background:rgba(0,255,136,0.05);border-radius:6px;">
+        <div style="font-size:11px;color:var(--text-4);text-transform:uppercase;">Promoted</div>
+        <div style="font-size:16px;color:var(--green);font-weight:600;">${promoted.length}</div>
+      </div>
+      <div style="flex:1;text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;">
+        <div style="font-size:11px;color:var(--text-4);text-transform:uppercase;">Scanned</div>
+        <div style="font-size:16px;color:var(--text-2);font-weight:600;">${scanned}</div>
+      </div>
+    </div>
+    ${activity.filter(a => a.score > 0).sort((a, b) => b.score - a.score).slice(0, 10).map(a => {
+      const isProm = a.promoted;
+      const scoreColor = a.score >= 0.4 ? 'var(--green)' : a.score >= 0.2 ? 'var(--amber, #ffaa00)' : 'var(--text-4)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;border-bottom:1px solid var(--border);">
+        <span style="color:var(--text-2);font-weight:${isProm ? '600' : '400'};">${isProm ? '+ ' : ''}${a.symbol}</span>
+        <span style="color:${scoreColor};font-family:'JetBrains Mono',monospace;">${a.score.toFixed(2)}</span>
+        <span style="color:var(--text-4);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.reasons || ''}</span>
+      </div>`;
+    }).join('')}
+  `;
+}
 
 let _paramsCache = {};
 let _paramsDirty = false;
