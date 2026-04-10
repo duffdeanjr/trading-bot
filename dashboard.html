@@ -1457,7 +1457,15 @@ function renderParams(params) {
   el.innerHTML = html;
 }
 
-function toggleParamsEdit() {
+async function toggleParamsEdit() {
+  // Ensure we have fresh data before opening edit form
+  if (!_paramsCache || Object.keys(_paramsCache).length === 0) {
+    try {
+      const resp = await fetch(API + '/api/data');
+      const d = await resp.json();
+      if (d.parameters) _paramsCache = { ...d.parameters };
+    } catch(e) { /* use whatever we have */ }
+  }
   _paramsEditing = true;
   $('btnEditParams').style.display = 'none';
   $('btnSaveParams').style.display = '';
@@ -1467,12 +1475,13 @@ function toggleParamsEdit() {
   editEl.style.display = 'grid';
   editEl.style.gridTemplateColumns = '1fr 1fr 1fr';
   editEl.style.gap = '16px';
+  const pc = _paramsCache;
   let html = '';
   PARAM_DEFS.forEach(section => {
     html += `<div style="min-width:0;">`;
     html += `<div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);">${section.section}</div>`;
     section.params.forEach(p => {
-      const val = _paramsCache[p.key];
+      const val = pc[p.key] != null ? pc[p.key] : '';
       html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:13px;">`;
       html += `<span style="color:var(--text-3);">${p.label}</span>`;
       if (p.type === 'readonly') {
