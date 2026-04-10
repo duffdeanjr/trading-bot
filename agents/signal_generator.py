@@ -267,11 +267,12 @@ def _emit_equity_signals(symbols: list) -> list:
             })
 
         # 5. Options signals based on IV regime
+        #    Allow heuristic regime when IVR is not yet computed (< 20 history points)
         if (settings.OPTIONS_ENABLED
                 and settings.OPTIONS_LEVEL >= 3
                 and shared.MARKET_OPEN
                 and not shared.EXTENDED_HOURS
-                and ivr is not None):
+                and regime != "unknown"):
 
             opt_strategy = iv_engine.select_strategy(ivr_data)
 
@@ -280,15 +281,15 @@ def _emit_equity_signals(symbols: list) -> list:
             # set, causing the loop to see it as "already emitted" and
             # silently drop the signal.
 
-            if opt_strategy == "iron_condor" and ivr >= 50:
+            if opt_strategy == "iron_condor" and (ivr is None or ivr >= 50):
                 sig = options_strategies.iron_condor(symbol, close)
                 if sig:
-                    sig["confidence"] = min(0.5 + ivr / 200, 0.9)
+                    sig["confidence"] = min(0.5 + (ivr or 50) / 200, 0.9)
                     sig["sentiment"]  = round(sent_score, 3)
                     sig["ivr"]        = ivr
                     signals_for_symbol.append(sig)
 
-            elif opt_strategy == "covered_call" and ivr >= 35:
+            elif opt_strategy == "covered_call" and (ivr is None or ivr >= 35):
                 with shared.positions_lock:
                     holds = symbol in shared.positions
                 if holds:

@@ -66,7 +66,13 @@ def get_corporate_actions(**kwargs):
     return _client.get_corporate_announcements(req)
 
 def get_options_contracts(**kwargs):
-    return _client.get_option_contracts(**kwargs)
+    from alpaca.trading.requests import GetOptionContractsRequest
+    req = GetOptionContractsRequest(**kwargs)
+    resp = _client.get_option_contracts(req)
+    # Response is OptionContractsResponse; extract the list of contracts
+    if hasattr(resp, 'option_contracts'):
+        return resp.option_contracts or []
+    return resp
 
 # ?? order builders ????????????????????????????????????????????
 

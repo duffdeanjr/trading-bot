@@ -21,25 +21,50 @@ logger = logging.getLogger(__name__)
 
 
 def _get_options_chain(symbol: str) -> list:
-    """Get available options contracts for a symbol from database or Alpaca API."""
-    # First try database (populated by ref_library._fetch_option_chains)
-    chain = database.read_option_chain_latest(symbol)
-    if chain:
-        return chain
-    # Fallback: live API call
+    """Get available options contracts for a symbol from Alpaca API.
+    Always fetches live data (chains change too fast to rely on DB cache)."""
     try:
         from alpaca_local import client as alpaca
+        today = datetime.date.today()
         contracts = alpaca.get_options_contracts(
             underlying_symbols=[symbol],
             status="active",
+            expiration_date_gte=today + datetime.timedelta(days=14),
+            expiration_date_lte=today + datetime.timedelta(days=60),
         )
         if contracts:
-            contract_list = list(contracts)
-            database.write_option_chain(contract_list)
-            return contract_list
+            return list(contracts) if not isinstance(contracts, list) else contracts
     except Exception as e:
         logger.debug(f"options_strategies: chain lookup failed for {symbol}: {e}")
     return []
+
+
+def _get_attr(c, name, default=None):
+    """Get attribute from either an object or dict."""
+    if isinstance(c, dict):
+        return c.get(name, default)
+    return getattr(c, name, default)
+
+
+def _get_type(c) -> str:
+    """Get option type as lowercase string ('call' or 'put')."""
+    raw = _get_attr(c, 'type', '')
+    if hasattr(raw, 'value'):
+        return raw.value.lower()
+    return str(raw).lower()
+
+
+def _get_expiry(c) -> datetime.date:
+    """Get expiration date from contract (object or dict)."""
+    exp = _get_attr(c, 'expiration_date') or _get_attr(c, 'expiry')
+    if exp is None:
+        return None
+    if isinstance(exp, datetime.date):
+        return exp
+    try:
+        return datetime.date.fromisoformat(str(exp)[:10])
+    except Exception:
+        return None
 
 
 def _select_expiry(contracts: list, target_dte: int = 30, max_dte: int = 45) -> list:
@@ -47,15 +72,11 @@ def _select_expiry(contracts: list, target_dte: int = 30, max_dte: int = 45) -> 
     today = datetime.date.today()
     result = []
     for c in contracts:
-        exp = getattr(c, 'expiration_date', None)
-        if exp:
-            try:
-                exp_date = datetime.date.fromisoformat(str(exp))
-                dte = (exp_date - today).days
-                if target_dte <= dte <= max_dte:
-                    result.append((dte, c))
-            except Exception:
-                pass
+        exp_date = _get_expiry(c)
+        if exp_date:
+            dte = (exp_date - today).days
+            if target_dte <= dte <= max_dte:
+                result.append((dte, c))
     result.sort(key=lambda x: x[0])
     return [c for _, c in result]
 
@@ -67,12 +88,11 @@ def _find_strike(contracts: list, underlying_price: float,
     option_type: 'call' or 'put'
     """
     target_strike = underlying_price * (1 + offset_pct)
-    candidates = [c for c in contracts
-                  if str(getattr(c, 'type', '')).lower() == option_type]
+    candidates = [c for c in contracts if _get_type(c) == option_type]
     if not candidates:
         return None
     return min(candidates,
-               key=lambda c: abs(float(getattr(c, 'strike_price', 0)) - target_strike))
+               key=lambda c: abs(float(_get_attr(c, 'strike_price', 0)) - target_strike))
 
 
 def iron_condor(symbol: str, underlying_price: float,
@@ -88,7 +108,7 @@ def iron_condor(symbol: str, underlying_price: float,
         logger.debug(f"iron_condor: no options chain for {symbol}")
         return None
 
-    chain = _select_expiry(contracts, target_dte=30, max_dte=45)
+    chain = _select_expiry(contracts, target_dte=14, max_dte=45)
     if not chain:
         return None
 
@@ -135,7 +155,7 @@ def covered_call(symbol: str, underlying_price: float,
     if not contracts:
         return None
 
-    chain = _select_expiry(contracts, target_dte=25, max_dte=45)
+    chain = _select_expiry(contracts, target_dte=14, max_dte=45)
     if not chain:
         return None
 
@@ -166,7 +186,7 @@ def cash_secured_put(symbol: str, underlying_price: float,
     if not contracts:
         return None
 
-    chain = _select_expiry(contracts, target_dte=25, max_dte=45)
+    chain = _select_expiry(contracts, target_dte=14, max_dte=45)
     if not chain:
         return None
 
