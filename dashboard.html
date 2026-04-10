@@ -717,6 +717,8 @@ async function fetchData() {
       concentration: raw.concentration || { max_pct: 0, symbol: '' },
       // Heat
       heat_status: raw.heat_status || {},
+      // Parameters
+      parameters: raw.parameters || {},
       // Errors from agent_logs
       errors: (raw.errors || []).map(e => ({
         msg: `${e.agent}: ${(e.message || '').substring(0, 60)}`,
@@ -1029,7 +1031,7 @@ function render() {
   $('avgLoss').textContent = avgLoss != null ? fmtPnl(avgLoss) : '—';
   renderStrategyPerf(outcomes);
   renderPlan(plan);
-  renderParams(D.parameters);
+  renderParams(state.parameters);
   renderTradeLog(trades);
 
   // Command text
