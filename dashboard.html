@@ -448,20 +448,18 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Trading Parameters -->
+    <!-- Trading Parameters (always-visible inline edit) -->
     <div class="card" id="paramsPanel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <span class="card-label" style="margin:0;">Trading Parameters</span>
         <div>
-          <button id="btnEditParams" onclick="toggleParamsEdit()" style="padding:5px 14px;font-size:12px;font-weight:600;background:rgba(0,255,136,0.08);color:var(--green);border:1px solid rgba(0,255,136,0.2);border-radius:6px;cursor:pointer;">Edit</button>
-          <button id="btnSaveParams" onclick="saveParams()" style="display:none;padding:5px 14px;font-size:12px;font-weight:600;background:rgba(0,255,136,0.15);color:var(--green);border:1px solid rgba(0,255,136,0.3);border-radius:6px;cursor:pointer;">Save</button>
-          <button id="btnCancelParams" onclick="cancelParamsEdit()" style="display:none;padding:5px 14px;font-size:12px;font-weight:600;background:rgba(255,255,255,0.05);color:var(--text-3);border:1px solid var(--border);border-radius:6px;cursor:pointer;margin-left:4px;">Cancel</button>
+          <span id="paramsSaveStatus" style="color:var(--green);font-size:12px;margin-right:8px;display:none;"></span>
+          <button id="btnSaveParams" onclick="saveParams()" style="padding:5px 14px;font-size:12px;font-weight:600;background:rgba(0,255,136,0.08);color:var(--green);border:1px solid rgba(0,255,136,0.2);border-radius:6px;cursor:pointer;display:none;">Save Changes</button>
         </div>
       </div>
-      <div id="paramsView" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+      <div id="paramsGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
         <!-- Populated by JS -->
       </div>
-      <div id="paramsEdit" style="display:none;"></div>
     </div>
 
     <!-- Trade Log -->
@@ -1425,31 +1423,39 @@ const PARAM_DEFS = [
 ];
 
 let _paramsCache = {};
-let _paramsEditing = false;
+let _paramsDirty = false;
 
 function renderParams(params) {
   if (!params) return;
-  _paramsCache = { ...params };
-  if (_paramsEditing) return;  // don't overwrite edit form while user is editing
-  const el = $('paramsView');
+  const el = $('paramsGrid');
   if (!el) return;
+
+  // Don't overwrite inputs while user is focused on one
+  if (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.param) return;
+
+  _paramsCache = { ...params };
   let html = '';
   PARAM_DEFS.forEach(section => {
     html += `<div style="min-width:0;">`;
     html += `<div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);">${section.section}</div>`;
     section.params.forEach(p => {
-      const val = params[p.key];
-      let display;
-      if (p.type === 'toggle') {
-        display = val ? '<span style="color:var(--green);">ON</span>' : '<span style="color:var(--red);">OFF</span>';
-      } else if (p.unit === '$') {
-        display = '$' + Number(val).toLocaleString();
-      } else {
-        display = val + (p.unit || '');
-      }
-      html += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">`;
+      const val = params[p.key] != null ? params[p.key] : '';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:13px;">`;
       html += `<span style="color:var(--text-3);">${p.label}</span>`;
-      html += `<span style="color:var(--text-1);font-weight:500;font-family:'JetBrains Mono',monospace;">${display}</span>`;
+      if (p.type === 'readonly') {
+        html += `<span style="color:var(--text-4);font-family:'JetBrains Mono',monospace;font-size:12px;">${val}${p.unit||''}</span>`;
+      } else if (p.type === 'toggle') {
+        const checked = val ? 'checked' : '';
+        html += `<label style="position:relative;width:36px;height:20px;display:inline-block;cursor:pointer;">`;
+        html += `<input type="checkbox" data-param="${p.key}" ${checked} onchange="onParamToggle(this)" style="opacity:0;width:0;height:0;">`;
+        html += `<span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:${val?'var(--green)':'rgba(255,255,255,0.1)'};border-radius:10px;transition:.2s;"></span>`;
+        html += `<span style="position:absolute;height:16px;width:16px;left:${val?'18px':'2px'};bottom:2px;background:white;border-radius:50%;transition:.2s;"></span>`;
+        html += `</label>`;
+      } else {
+        const prefix = p.unit === '$' ? '<span style="color:var(--text-4);font-size:12px;margin-right:2px;">$</span>' : '';
+        const suffix = p.unit && p.unit !== '$' ? `<span style="color:var(--text-4);font-size:11px;margin-left:2px;">${p.unit}</span>` : '';
+        html += `<div style="display:flex;align-items:center;">${prefix}<input type="number" data-param="${p.key}" value="${val}" step="${p.step||1}" onchange="onParamChange()" style="width:72px;padding:3px 5px;font-size:12px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.04);color:var(--text-1);border:1px solid var(--border);border-radius:4px;text-align:right;">${suffix}</div>`;
+      }
       html += `</div>`;
     });
     html += `</div>`;
@@ -1457,79 +1463,32 @@ function renderParams(params) {
   el.innerHTML = html;
 }
 
-async function toggleParamsEdit() {
-  // Ensure we have fresh data before opening edit form
-  if (!_paramsCache || Object.keys(_paramsCache).length === 0) {
-    try {
-      const resp = await fetch(API + '/api/data');
-      const d = await resp.json();
-      if (d.parameters) _paramsCache = { ...d.parameters };
-    } catch(e) { /* use whatever we have */ }
-  }
-  _paramsEditing = true;
-  $('btnEditParams').style.display = 'none';
+function onParamChange() {
+  _paramsDirty = true;
   $('btnSaveParams').style.display = '';
-  $('btnCancelParams').style.display = '';
-  $('paramsView').style.display = 'none';
-  const editEl = $('paramsEdit');
-  editEl.style.display = 'grid';
-  editEl.style.gridTemplateColumns = '1fr 1fr 1fr';
-  editEl.style.gap = '16px';
-  const pc = _paramsCache;
-  let html = '';
-  PARAM_DEFS.forEach(section => {
-    html += `<div style="min-width:0;">`;
-    html += `<div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);">${section.section}</div>`;
-    section.params.forEach(p => {
-      const val = pc[p.key] != null ? pc[p.key] : '';
-      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:13px;">`;
-      html += `<span style="color:var(--text-3);">${p.label}</span>`;
-      if (p.type === 'readonly') {
-        html += `<span style="color:var(--text-4);font-family:'JetBrains Mono',monospace;font-size:12px;">${val}${p.unit||''}</span>`;
-      } else if (p.type === 'toggle') {
-        const checked = val ? 'checked' : '';
-        html += `<label style="position:relative;width:36px;height:20px;display:inline-block;">`;
-        html += `<input type="checkbox" data-param="${p.key}" ${checked} style="opacity:0;width:0;height:0;">`;
-        html += `<span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:${val?'var(--green)':'rgba(255,255,255,0.1)'};border-radius:10px;transition:.2s;"></span>`;
-        html += `<span style="position:absolute;height:16px;width:16px;left:${val?'18px':'2px'};bottom:2px;background:white;border-radius:50%;transition:.2s;"></span>`;
-        html += `</label>`;
-      } else {
-        html += `<input type="number" data-param="${p.key}" value="${val}" step="${p.step||1}" style="width:80px;padding:4px 6px;font-size:12px;font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,0.05);color:var(--text-1);border:1px solid var(--border);border-radius:4px;text-align:right;">`;
-      }
-      html += `</div>`;
-    });
-    html += `</div>`;
-  });
-  editEl.innerHTML = html;
-  // Wire toggle clicks
-  editEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    cb.addEventListener('change', function() {
-      const span = this.nextElementSibling;
-      const dot = span.nextElementSibling;
-      span.style.background = this.checked ? 'var(--green)' : 'rgba(255,255,255,0.1)';
-      dot.style.left = this.checked ? '18px' : '2px';
-    });
-  });
 }
 
-function cancelParamsEdit() {
-  _paramsEditing = false;
-  $('btnEditParams').style.display = '';
-  $('btnSaveParams').style.display = 'none';
-  $('btnCancelParams').style.display = 'none';
-  $('paramsView').style.display = 'grid';
-  $('paramsEdit').style.display = 'none';
+function onParamToggle(cb) {
+  const span = cb.nextElementSibling;
+  const dot = span.nextElementSibling;
+  span.style.background = cb.checked ? 'var(--green)' : 'rgba(255,255,255,0.1)';
+  dot.style.left = cb.checked ? '18px' : '2px';
+  _paramsDirty = true;
+  $('btnSaveParams').style.display = '';
 }
 
 async function saveParams() {
-  const editEl = $('paramsEdit');
+  const grid = $('paramsGrid');
   const payload = {};
-  editEl.querySelectorAll('input[type="number"]').forEach(inp => {
-    payload[inp.dataset.param] = parseFloat(inp.value);
+  grid.querySelectorAll('input[type="number"]').forEach(inp => {
+    if (inp.dataset.param) payload[inp.dataset.param] = parseFloat(inp.value);
   });
-  editEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    payload[cb.dataset.param] = cb.checked;
+  grid.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    if (cb.dataset.param) payload[cb.dataset.param] = cb.checked;
   });
+  const btn = $('btnSaveParams');
+  const status = $('paramsSaveStatus');
+  btn.textContent = 'Saving...';
   try {
     const resp = await fetch(API + '/api/exec/parameters', {
       method: 'POST',
@@ -1538,14 +1497,26 @@ async function saveParams() {
     });
     const data = await resp.json();
     if (data.status === 'ok') {
-      cancelParamsEdit();
-      // Force refresh
+      _paramsDirty = false;
+      btn.style.display = 'none';
+      btn.textContent = 'Save Changes';
+      status.textContent = 'Saved';
+      status.style.display = '';
+      setTimeout(() => { status.style.display = 'none'; }, 2000);
       fetchData();
     } else {
-      alert('Error: ' + (data.error || 'unknown'));
+      btn.textContent = 'Save Changes';
+      status.textContent = 'Error: ' + (data.error || 'unknown');
+      status.style.color = 'var(--red)';
+      status.style.display = '';
+      setTimeout(() => { status.style.display = 'none'; status.style.color = 'var(--green)'; }, 3000);
     }
   } catch (e) {
-    alert('Failed to save: ' + e.message);
+    btn.textContent = 'Save Changes';
+    status.textContent = 'Failed: ' + e.message;
+    status.style.color = 'var(--red)';
+    status.style.display = '';
+    setTimeout(() => { status.style.display = 'none'; status.style.color = 'var(--green)'; }, 3000);
   }
 }
 
