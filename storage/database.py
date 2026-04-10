@@ -171,11 +171,22 @@ def init_db():
                 score        REAL
             );
 
+            -- Screener scores (audit trail)
+            CREATE TABLE IF NOT EXISTS screener_scores (
+                symbol     TEXT NOT NULL,
+                ts         REAL NOT NULL,
+                score      REAL NOT NULL,
+                reasons    TEXT,
+                promoted   INTEGER DEFAULT 0,
+                PRIMARY KEY (symbol, ts)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_bars_symbol ON historical_bars(symbol);
             CREATE INDEX IF NOT EXISTS idx_news_ts ON news(ts);
             CREATE INDEX IF NOT EXISTS idx_corp_actions_symbol ON corporate_actions(symbol);
             CREATE INDEX IF NOT EXISTS idx_outcomes_strategy ON outcomes(strategy);
             CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
+            CREATE INDEX IF NOT EXISTS idx_screener_ts ON screener_scores(ts);
         """)
         conn.commit()
     logger.info(f"database initialised: {settings.DB_PATH} (WAL mode)")
@@ -607,6 +618,20 @@ def get_all_strategy_scores():
     return [dict(r) for r in conn.execute(
         "SELECT * FROM strategy_scores ORDER BY score DESC"
     ).fetchall()]
+
+# -- screener helpers --
+
+def write_screener_score(symbol, ts, score, reasons="", promoted=False):
+    try:
+        conn = get_connection()
+        with _lock:
+            conn.execute(
+                "INSERT OR REPLACE INTO screener_scores (symbol, ts, score, reasons, promoted) VALUES (?,?,?,?,?)",
+                (symbol, ts, score, reasons, 1 if promoted else 0),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"database: write_screener_score failed: {e}")
 
 # -- retention cleanup --
 

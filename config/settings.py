@@ -83,6 +83,17 @@ DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5050"))
 # ── rebalancing ──────────────────────────────────────────────
 REBALANCE_THRESHOLD = 0.01  # only rebalance when allocation gap > 1%
 
+# ── screener ─────────────────────────────────────────────────
+SCREENER_ENABLED          = os.getenv("SCREENER_ENABLED", "true").lower() in ("true", "1", "yes")
+SCREENER_INTERVAL         = int(os.getenv("SCREENER_INTERVAL", "900"))      # seconds between scan cycles
+SCREENER_BATCH_SIZE       = int(os.getenv("SCREENER_BATCH_SIZE", "15"))     # symbols per API call
+SCREENER_BATCHES_PER_CYCLE = int(os.getenv("SCREENER_BATCHES_PER_CYCLE", "4"))
+SCREENER_PROMOTE_THRESHOLD = float(os.getenv("SCREENER_PROMOTE_THRESHOLD", "0.40"))
+SCREENER_DEMOTE_THRESHOLD  = float(os.getenv("SCREENER_DEMOTE_THRESHOLD", "0.20"))
+MAX_WATCHLIST_SIZE        = int(os.getenv("MAX_WATCHLIST_SIZE", "40"))
+SCREENER_MIN_TENURE_S     = int(os.getenv("SCREENER_MIN_TENURE_S", "1800")) # 30 min before demotion
+SCREENER_HISTORY_DAYS     = int(os.getenv("SCREENER_HISTORY_DAYS", "30"))
+
 # ── resilience ────────────────────────────────────────────────
 MAX_RETRIES       = 3    # order exec retry attempts on transient errors
 BACKOFF_BASE      = 2    # exponential backoff multiplier (seconds)

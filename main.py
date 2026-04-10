@@ -23,7 +23,7 @@ from alpaca_local import client as alpaca, stream as alpaca_stream
 from agents import (
     boss, signal_generator, risk_manager,
     order_execution, account_agent, ref_library, diagnostics,
-    plan_manager,
+    plan_manager, screener,
 )
 
 # ?? logging setup ?????????????????????????????????????????????
@@ -144,8 +144,11 @@ def main():
     t_sig  = _start_thread(signal_generator.run, "signal_generator")
     t_plan = _start_thread(plan_manager.run,     "plan_manager")
     _all_threads.extend([t_acct, t_diag, t_sig, t_plan])
+    if settings.SCREENER_ENABLED:
+        t_scr = _start_thread(screener.run, "screener")
+        _all_threads.append(t_scr)
 
-    logger.info("step 6: account_agent / diagnostics / signal_generator / plan_manager started")
+    logger.info("step 6: account_agent / diagnostics / signal_generator / plan_manager / screener started")
     logger.info("step 6: waiting for account_ready_event")
     shared.account_ready_event.wait(timeout=30)
     logger.info("step 6: account_ready_event received - positions populated")

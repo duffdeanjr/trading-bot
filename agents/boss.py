@@ -57,15 +57,72 @@ def _resolve_watchlist():
     # Add crypto watchlist
     symbols.extend(settings.CRYPTO_WATCHLIST)
 
+    # Merge screener promotions
+    if settings.SCREENER_ENABLED:
+        symbols = _merge_screener(symbols)
+
     with shared.cache_lock:
         shared.watchlist = symbols
         shared.ticker_list = symbols
 
     logger.info(f"boss: watchlist resolved -> {len(symbols)} symbols")
 
+
+def _merge_screener(symbols: list) -> list:
+    """Merge screener candidates into watchlist and process demotions."""
+    core = set(settings.WATCHLIST + settings.CRYPTO_WATCHLIST)
+    max_size = settings.MAX_WATCHLIST_SIZE
+
+    with shared.cache_lock:
+        candidates = dict(shared.screener_candidates)
+        demotions = list(shared.screener_demotions)
+        shared.screener_demotions = []  # clear after reading
+
+    with shared.positions_lock:
+        held = set(shared.positions.keys())
+
+    # Process demotions: remove low-scoring non-core, non-held symbols
+    if demotions:
+        remove_set = set()
+        for sym in demotions:
+            if sym not in core and sym not in held:
+                remove_set.add(sym)
+        before = len(symbols)
+        symbols = [s for s in symbols if s not in remove_set]
+        removed = before - len(symbols)
+        if removed:
+            logger.info(f"boss: screener demoted {removed} symbols: {remove_set}")
+
+    # Process promotions: add high-scoring candidates up to max_size
+    existing = set(symbols)
+    added = []
+    # Sort candidates by score descending
+    sorted_cands = sorted(candidates.items(), key=lambda x: x[1].get("score", 0), reverse=True)
+
+    for sym, info in sorted_cands:
+        if sym in existing:
+            continue
+        if len(symbols) >= max_size:
+            break
+        if info.get("score", 0) >= settings.SCREENER_PROMOTE_THRESHOLD:
+            symbols.append(sym)
+            existing.add(sym)
+            added.append(sym)
+            # Flag for ref_library to fetch bars
+            with shared.cache_lock:
+                shared.dirty_symbols.add(sym)
+
+    if added:
+        logger.info(f"boss: screener promoted {len(added)} symbols: {added}")
+
+    return symbols
+
+
 def run():
     logger.info("boss: starting")
     last_open_state = None
+    last_merge_ts = 0.0
+    _MERGE_INTERVAL = 300  # re-merge screener output every 5 min
 
     # Resolve watchlist at startup
     _resolve_watchlist()
@@ -77,6 +134,13 @@ def run():
         if shared.MARKET_OPEN and not last_open_state:
             _resolve_watchlist()
             logger.info("boss: market opened")
+
+        # Periodically re-merge screener during market hours
+        now = time.time()
+        if (shared.MARKET_OPEN or shared.EXTENDED_HOURS) and (now - last_merge_ts) >= _MERGE_INTERVAL:
+            if settings.SCREENER_ENABLED:
+                _resolve_watchlist()
+                last_merge_ts = now
 
         last_open_state = shared.MARKET_OPEN
 

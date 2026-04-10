@@ -53,6 +53,11 @@ ticker_ts    = 0.0      # OWNER: signal_generator (time.time() of last screener 
 # ── investment plan — guarded by cache_lock ───────────────────
 investment_plan = None  # OWNER: plan_manager (cached plan dict)
 
+# ── screener state — guarded by cache_lock ────────────────────
+screener_candidates = {}   # OWNER: screener  {symbol: {"score": float, "ts": float, "reasons": str}}
+screener_demotions  = []   # OWNER: screener  [symbol, ...]
+screener_last_run   = 0.0  # OWNER: screener  (timestamp of last completed scan)
+
 # ── dirty symbols — guarded by cache_lock ─────────────────────
 # account_agent writes symbol here when a corp action NTA event is detected.
 # ref_library reads and re-fetches bars for that symbol, then clears the entry.
