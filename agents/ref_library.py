@@ -63,7 +63,7 @@ def _iter_barset(bars):
 def _is_crypto(symbol: str) -> bool:
     return "/" in symbol
 
-def _fetch_historical(symbols: list, limit=30):
+def _fetch_historical(symbols: list, limit=60):
     """Fetch OHLCV bars for equity symbols and write to database."""
     equity_syms = [s for s in symbols if not _is_crypto(s)]
     crypto_syms = [s for s in symbols if _is_crypto(s)]
@@ -72,7 +72,7 @@ def _fetch_historical(symbols: list, limit=30):
     if crypto_syms:
         _fetch_crypto_bars(crypto_syms, limit)
 
-def _fetch_equity_bars(symbols: list, limit=30):
+def _fetch_equity_bars(symbols: list, limit=60):
     if not symbols:
         return
     try:
@@ -99,7 +99,7 @@ def _fetch_equity_bars(symbols: list, limit=30):
     except Exception as e:
         logger.error(f"ref_library: _fetch_equity_bars failed: {e}")
 
-def _fetch_crypto_bars(symbols: list, limit=30):
+def _fetch_crypto_bars(symbols: list, limit=60):
     if not symbols:
         return
     try:
