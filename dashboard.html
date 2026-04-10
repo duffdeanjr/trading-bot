@@ -496,26 +496,8 @@ a { color: var(--cyan); text-decoration: none; }
           <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-3);"><span class="status-dot dot-warn"></span> Warning</span>
         </div>
       </div>
-      <!-- CEO -->
-      <div class="org-center"><div class="org-node org-node-ceo">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="var(--green)" stroke-width="1.5"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="var(--green)" stroke-width="1.5"/></svg>
-        <div class="org-node-name">CEO (You)</div>
-        <div class="org-node-role">strategy & direction</div>
-      </div></div>
-      <div class="org-line"></div>
-      <!-- COO -->
-      <div class="org-center"><div class="org-node">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--green)" stroke-width="1.5"/><path d="M8 12h8M12 8v8" stroke="var(--green)" stroke-width="1.5"/></svg>
-        <div class="org-node-name">COO · main.py</div>
-        <div class="org-node-role" id="cooStatus">supervisor</div>
-      </div></div>
-      <div class="org-line"></div>
-      <div class="org-hline"></div>
-      <div style="height:6px;"></div>
-      <!-- Agent Row 1 -->
-      <div class="org-grid mb" id="agentRow1"></div>
-      <!-- Agent Row 2 -->
-      <div class="org-grid" id="agentRow2"></div>
+      <!-- Agent Grid -->
+      <div id="agentGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;"></div>
     </div>
 
     <!-- Heartbeat / Stream Health -->
@@ -1698,46 +1680,52 @@ function renderTradeLog(trades) {
 // ── Command Tab Renders ──
 
 function renderOrgChart() {
-  // Build a lookup from agent_status array
   const agentMap = {};
   (state.agent_status || []).forEach(a => { agentMap[a.name] = a; });
-  const row1Defs = [
-    { key: 'ref_library', name: 'Research', icon: '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>', color: 'var(--cyan)' },
-    { key: 'signal_generator', name: 'Intelligence', icon: '<circle cx="12" cy="12" r="9" stroke="var(--purple)" stroke-width="1.5" fill="none"/><path d="M12 8v4l3 3" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" fill="none"/>', color: 'var(--purple)' },
-    { key: 'plan_manager', name: 'Strategy', icon: '<rect x="3" y="3" width="18" height="18" rx="2" stroke="var(--amber)" stroke-width="1.5" fill="none"/><path d="M8 16l4-8 4 8" stroke="var(--amber)" stroke-width="1.5" fill="none"/>', color: 'var(--amber)' },
-    { key: 'order_execution', name: 'Trading', icon: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="var(--green)" stroke-width="1.5" fill="none"/>', color: 'var(--green)' },
+
+  const agents = [
+    { key: 'ref_library', name: 'Research', color: 'var(--cyan)',
+      icon: '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>',
+      bullets: ['Fetch historical OHLCV bars', 'Cache news & corp actions', 'Refresh every 4 hours'] },
+    { key: 'signal_generator', name: 'Signals', color: 'var(--purple)',
+      icon: '<circle cx="12" cy="12" r="9" stroke="var(--purple)" stroke-width="1.5" fill="none"/><path d="M12 8v4l3 3" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" fill="none"/>',
+      bullets: ['RSI, MACD, Bollinger, EMA', 'IV regime & options signals', 'Sentiment scoring on news'] },
+    { key: 'plan_manager', name: 'Strategy', color: 'var(--amber)',
+      icon: '<rect x="3" y="3" width="18" height="18" rx="2" stroke="var(--amber)" stroke-width="1.5" fill="none"/><path d="M8 16l4-8 4 8" stroke="var(--amber)" stroke-width="1.5" fill="none"/>',
+      bullets: ['Build investment plan from signals', 'Continuous 90s position review', 'Auto-trim overweight positions'] },
+    { key: 'order_execution', name: 'Trading', color: 'var(--green)',
+      icon: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="var(--green)" stroke-width="1.5" fill="none"/>',
+      bullets: ['Rebalance toward plan targets', 'Submit equity & options orders', 'Retry with exponential backoff'] },
+    { key: 'risk_manager', name: 'Risk', color: 'var(--red)',
+      icon: '<path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z" stroke="var(--red)" stroke-width="1.5" fill="none"/>',
+      bullets: ['PDT, margin & heat checks', 'Circuit breaker on daily loss', 'Options BP & naked short block'] },
+    { key: 'account_agent', name: 'Accounts', color: 'var(--cyan)',
+      icon: '<rect x="3" y="5" width="18" height="14" rx="2" stroke="var(--cyan)" stroke-width="1.5" fill="none"/><path d="M3 10h18" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>',
+      bullets: ['Poll account & positions', 'Track fills & outcome P&L', 'Detect corp action events'] },
+    { key: 'boss', name: 'Scheduler', color: 'var(--amber)',
+      icon: '<circle cx="12" cy="12" r="9" stroke="var(--amber)" stroke-width="1.5" fill="none"/><path d="M12 7v5h4" stroke="var(--amber)" stroke-width="1.5" stroke-linecap="round" fill="none"/>',
+      bullets: ['Market open/close via clock', 'Merge screener promotions', 'Resolve & update watchlist'] },
+    { key: 'diagnostics', name: 'Diagnostics', color: 'var(--green)',
+      icon: '<path d="M12 20V10M18 20V4M6 20v-4" stroke="var(--green)" stroke-width="2" stroke-linecap="round" fill="none"/>',
+      bullets: ['Stream health & heartbeats', 'Agent crash detection', 'Rate limit 429 backoff'] },
   ];
-  const row2Defs = [
-    { key: 'risk_manager', name: 'Risk', icon: '<path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z" stroke="var(--red)" stroke-width="1.5" fill="none"/>', color: 'var(--red)' },
-    { key: 'account_agent', name: 'Finance', icon: '<rect x="3" y="5" width="18" height="14" rx="2" stroke="var(--cyan)" stroke-width="1.5" fill="none"/><path d="M3 10h18" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>', color: 'var(--cyan)' },
-    { key: 'boss', name: 'Scheduler', icon: '<circle cx="12" cy="12" r="9" stroke="var(--amber)" stroke-width="1.5" fill="none"/><path d="M12 7v5h4" stroke="var(--amber)" stroke-width="1.5" stroke-linecap="round" fill="none"/>', color: 'var(--amber)' },
-    { key: 'diagnostics', name: 'IT/Ops', icon: '<path d="M12 20V10M18 20V4M6 20v-4" stroke="var(--green)" stroke-width="2" stroke-linecap="round" fill="none"/>', color: 'var(--green)' },
-  ];
 
-  function renderRow(defs) {
-    return defs.map(d => {
-      const info = agentMap[d.key] || {};
-      const ok = info.status === 'running' || !info.status;
-      const statusText = info.status === 'stale' ? 'STALE' : ok ? 'OK' : 'ERR';
-      return `<div class="org-node">
-        <svg width="22" height="22" viewBox="0 0 24 24">${d.icon}</svg>
-        <div class="org-node-name">${d.name}</div>
-        <div style="display:flex;align-items:center;justify-content:center;gap:3px;margin-top:3px;">
-          <span class="status-dot ${ok ? 'dot-ok' : 'dot-err'}"></span>
-          <span style="color:${ok ? 'var(--green)' : 'var(--red)'};font-size:11px;">${statusText}</span>
-        </div>
-      </div>`;
-    }).join('');
-  }
-
-  $('agentRow1').innerHTML = renderRow(row1Defs);
-  $('agentRow2').innerHTML = renderRow(row2Defs);
-
-  // COO status
-  const allOk = (state.agent_status || []).every(a => a.status === 'running');
-  $('cooStatus').innerHTML = allOk
-    ? '<span style="color:var(--green);">ALL RUNNING</span>'
-    : '<span style="color:var(--red);">ISSUES DETECTED</span>';
+  $('agentGrid').innerHTML = agents.map(d => {
+    const info = agentMap[d.key] || {};
+    const ok = info.status === 'running' || !info.status;
+    const statusText = info.status === 'stale' ? 'STALE' : ok ? 'OK' : 'ERR';
+    return `<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+      <svg width="20" height="20" viewBox="0 0 24 24">${d.icon}</svg>
+      <div style="font-size:13px;font-weight:600;color:${d.color};margin:4px 0 2px;">${d.name}</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:3px;margin-bottom:8px;">
+        <span class="status-dot ${ok ? 'dot-ok' : 'dot-err'}"></span>
+        <span style="color:${ok ? 'var(--green)' : 'var(--red)'};font-size:11px;">${statusText}</span>
+      </div>
+      <div style="text-align:left;padding-left:4px;">
+        ${d.bullets.map(b => `<div style="font-size:10px;color:var(--text-4);padding:1px 0;"><span style="color:${d.color};margin-right:4px;">&#8226;</span>${b}</div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function renderStreamHealth() {
