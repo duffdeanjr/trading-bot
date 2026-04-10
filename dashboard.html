@@ -1044,10 +1044,19 @@ function render() {
   $('cashVal').textContent = 'Cash: ' + fmt(state.cash);
   $('todayTrades').textContent = state.total_trades || trades.length || '0';
 
-  // Win rate from outcomes
-  const closedWins = outcomes.filter(o => o.pnl > 0).length;
-  const closedTotal = outcomes.length;
-  const wr = closedTotal > 0 ? Math.round((closedWins / closedTotal) * 100) : null;
+  // Win rate: use outcomes if available, else use position P&L as proxy
+  let wr = null, avgWin = null, avgLoss = null;
+  if (outcomes.length > 0) {
+    const closedWins = outcomes.filter(o => o.pnl > 0).length;
+    wr = Math.round((closedWins / outcomes.length) * 100);
+  } else if (positions.length > 0) {
+    // Use unrealized P&L on held positions as a live proxy
+    const winners = positions.filter(p => (p.unrealized_pl || 0) > 0);
+    const losers = positions.filter(p => (p.unrealized_pl || 0) < 0);
+    wr = Math.round((winners.length / positions.length) * 100);
+    avgWin = winners.length > 0 ? winners.reduce((s, p) => s + p.unrealized_pl, 0) / winners.length : null;
+    avgLoss = losers.length > 0 ? losers.reduce((s, p) => s + p.unrealized_pl, 0) / losers.length : null;
+  }
   $('winRate').textContent = wr != null ? `Win rate: ${wr}%` : 'Win rate: —';
   $('perfWinRate').textContent = wr != null ? `${wr}%` : '—';
 
@@ -1073,11 +1082,16 @@ function render() {
   renderAgentDots();
 
   // Performance text
-  $('totalTrades').textContent = state.total_trades || closedTotal || '0';
-  const avgW = outcomes.filter(o => o.pnl > 0);
-  const avgL = outcomes.filter(o => o.pnl < 0);
-  const avgWin = avgW.length ? avgW.reduce((s, o) => s + o.pnl, 0) / avgW.length : null;
-  const avgLoss = avgL.length ? avgL.reduce((s, o) => s + o.pnl, 0) / avgL.length : null;
+  $('totalTrades').textContent = state.total_trades || '0';
+  // avgWin/avgLoss already computed above from outcomes or positions
+  if (!avgWin && outcomes.length > 0) {
+    const avgW = outcomes.filter(o => o.pnl > 0);
+    avgWin = avgW.length ? avgW.reduce((s, o) => s + o.pnl, 0) / avgW.length : null;
+  }
+  if (!avgLoss && outcomes.length > 0) {
+    const avgL = outcomes.filter(o => o.pnl < 0);
+    avgLoss = avgL.length ? avgL.reduce((s, o) => s + o.pnl, 0) / avgL.length : null;
+  }
   $('avgWin').textContent = avgWin != null ? fmtPnl(avgWin) : '—';
   $('avgLoss').textContent = avgLoss != null ? fmtPnl(avgLoss) : '—';
   renderStrategyPerf(trades);
