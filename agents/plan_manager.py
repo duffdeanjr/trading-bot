@@ -163,12 +163,13 @@ def update_plan(signals: list, trigger: str = "signal_batch") -> dict:
     if plan["stance"] != old_stance:
         notes.append(f"stance: {old_stance} -> {plan['stance']}")
 
+    # Keep 30% cash minimum for options buying power
     if plan["stance"] == "risk-off":
-        plan["cash_target_pct"] = 0.20
+        plan["cash_target_pct"] = 0.40
     elif plan["stance"] == "risk-on":
-        plan["cash_target_pct"] = 0.05
+        plan["cash_target_pct"] = 0.30
     else:
-        plan["cash_target_pct"] = 0.10
+        plan["cash_target_pct"] = 0.35
 
     new_exclusions = _check_corp_action_exclusions(plan, dirty_snapshot)
     for sym in new_exclusions:

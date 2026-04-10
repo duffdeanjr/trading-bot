@@ -57,7 +57,7 @@ VWAP_TWAP = False        # requires Alpaca Elite Smart Router ($30k deposit)
 
 # ── risk limits ───────────────────────────────────────────────
 MAX_POSITION_SIZE   = float(os.getenv("MAX_POSITION_SIZE", "10000"))
-MAX_PORTFOLIO_PCT   = float(os.getenv("MAX_PORTFOLIO_PCT", "0.15"))
+MAX_PORTFOLIO_PCT   = float(os.getenv("MAX_PORTFOLIO_PCT", "0.10"))  # 10% max per position (options-focused)
 MARGIN_MIN_EQUITY   = float(os.getenv("MARGIN_MIN_EQUITY", "2000"))
 
 # ── circuit breaker ───────────────────────────────────────────
@@ -74,7 +74,7 @@ VIX_NORMAL  = float(os.getenv("VIX_NORMAL", "20"))
 VIX_CAUTION = float(os.getenv("VIX_CAUTION", "25"))
 VIX_HIGH    = float(os.getenv("VIX_HIGH", "35"))
 VIX_EXTREME = float(os.getenv("VIX_EXTREME", "45"))
-HEAT_MAX    = float(os.getenv("HEAT_MAX", "0.90"))
+HEAT_MAX    = float(os.getenv("HEAT_MAX", "0.70"))   # keep 30% free for options
 HEAT_WARN   = float(os.getenv("HEAT_WARN", "0.60"))
 
 # ── dashboard ────────────────────────────────────────────────
