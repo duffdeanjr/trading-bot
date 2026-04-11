@@ -11,9 +11,7 @@ logger = logging.getLogger(__name__)
 
 def _extract_strategy_tag(client_order_id):
     """Extract strategy tag from client_order_id format 'strategy_tag::timestamp'."""
-    if client_order_id and "::" in str(client_order_id):
-        return str(client_order_id).split("::")[0]
-    return "unknown"
+    return shared.extract_strategy_tag(client_order_id)
 
 def _on_fill(event):
     """
@@ -62,7 +60,7 @@ def _on_fill(event):
                 # VIX level
                 try:
                     from agents import risk_manager as _rm
-                    vix_level = getattr(_rm, "_last_vix", None) or 18.0
+                    vix_level = _rm.get_last_vix()
                 except Exception:
                     vix_level = 18.0
 

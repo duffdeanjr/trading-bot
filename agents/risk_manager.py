@@ -82,7 +82,6 @@ def _check_options_level(strategy: str) -> tuple:
 
 # -- expiry watch --
 def _check_expiring_options():
-    import datetime
     warn_delta = datetime.timedelta(days=settings.EXPIRY_WARN_DAYS)
     today = datetime.date.today()
     with shared.positions_lock:
@@ -116,6 +115,11 @@ def update_vix(vix: float):
     with _heat_lock:
         _last_vix = vix
 
+def get_last_vix() -> float:
+    """Public getter for current VIX level (thread-safe)."""
+    with _heat_lock:
+        return _last_vix
+
 def compute_heat() -> float:
     """Compute portfolio heat = sum(abs(position market values)) / equity."""
     with shared.account_lock:
@@ -133,8 +137,8 @@ def compute_heat() -> float:
         try:
             mv = float(getattr(pos, "market_value", 0) or 0)
             total_exposure += abs(mv)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"risk: could not read market_value for {sym}: {e}")
     global _last_heat
     heat = total_exposure / equity if equity > 0 else 0.0
     _last_heat = heat
@@ -250,8 +254,8 @@ def _check_circuit_breaker() -> tuple:
                 logger.error(f"risk: CIRCUIT BREAKER TRIPPED - {MAX_CONSECUTIVE_LOSSES} "
                            f"consecutive losing trades")
                 return False, f"circuit breaker: {MAX_CONSECUTIVE_LOSSES} consecutive losses"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"risk: circuit breaker consecutive-loss check failed: {e}")
 
     return True, ""
 

@@ -302,7 +302,7 @@ def _detect_market_regime() -> str:
     # Get VIX level
     try:
         from agents import risk_manager
-        vix = getattr(risk_manager, "_last_vix", None) or 18.0
+        vix = risk_manager.get_last_vix()
     except Exception:
         vix = 18.0
 
@@ -580,23 +580,8 @@ def _scheduled_refresh():
 
 
 def _build_ohlcv(symbol: str) -> dict:
-    """Convert historical_ohlcv data (may be list of Bar objects) to indicator-ready dict."""
-    with shared.cache_lock:
-        hist = shared.historical_ohlcv.get(symbol, {})
-    if isinstance(hist, dict) and "closes" in hist:
-        return hist
-    if isinstance(hist, list):
-        result = {"closes": [], "highs": [], "lows": [], "volumes": []}
-        for b in hist:
-            try:
-                result["closes"].append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
-                result["highs"].append(float(getattr(b, "high", getattr(b, "h", 0)) or 0))
-                result["lows"].append(float(getattr(b, "low", getattr(b, "l", 0)) or 0))
-                result["volumes"].append(float(getattr(b, "volume", getattr(b, "v", 0)) or 0))
-            except Exception:
-                continue
-        return result
-    return {}
+    """Alias for shared.build_ohlcv — kept for backward compatibility."""
+    return shared.build_ohlcv(symbol)
 
 
 def _continuous_review():

@@ -117,7 +117,7 @@ def _build_review_payload() -> dict:
     # -- VIX level --
     try:
         from agents import risk_manager as _rm
-        vix_level = getattr(_rm, "_last_vix", None) or 18.0
+        vix_level = _rm.get_last_vix()
     except Exception:
         vix_level = 18.0
 

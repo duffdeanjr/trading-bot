@@ -44,7 +44,7 @@ def on_fill(event):
         qty          = float(order.filled_qty or 0)
         price        = float(order.filled_avg_price or 0)
         coid         = order.client_order_id
-        strategy_tag = coid.split("::")[0] if coid and "::" in coid else coid
+        strategy_tag = shared.extract_strategy_tag(coid)
 
         # Remove from pending set so new orders for this symbol can flow
         _remove_pending(symbol, side, strategy_tag)
@@ -158,7 +158,7 @@ def _load_open_orders():
         orders = alpaca.get_open_orders()
         for o in orders:
             coid = o.client_order_id or ""
-            tag  = coid.split("::")[0] if "::" in coid else "default"
+            tag  = shared.extract_strategy_tag(coid) or "default"
             _add_pending(o.symbol, str(o.side), tag)
         logger.info(f"order_exec: pre-populated {len(orders)} open orders into pending set")
     except Exception as e:

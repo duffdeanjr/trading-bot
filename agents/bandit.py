@@ -51,7 +51,7 @@ def build_context_vector(signals: list) -> np.ndarray:
     # 1. VIX level (normalized, cap at 80)
     try:
         from agents import risk_manager as _rm
-        vix = getattr(_rm, "_last_vix", None) or 18.0
+        vix = _rm.get_last_vix()
     except Exception:
         vix = 18.0
     vix_norm = min(vix, 80.0) / 80.0

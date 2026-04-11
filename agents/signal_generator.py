@@ -310,24 +310,8 @@ def _get_watchlist() -> list:
 
 # -- signal emission ----------------------------------------------------------
 def _build_ohlcv(symbol: str) -> dict:
-    """Extract OHLCV arrays from historical cache for indicator computation."""
-    with shared.cache_lock:
-        hist = shared.historical_ohlcv.get(symbol, {})
-    if isinstance(hist, dict) and "closes" in hist:
-        return hist
-    if isinstance(hist, list):
-        result = {"closes": [], "highs": [], "lows": [], "opens": [], "volumes": []}
-        for b in hist:
-            try:
-                result["closes"].append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
-                result["highs"].append(float(getattr(b, "high", getattr(b, "h", 0)) or 0))
-                result["lows"].append(float(getattr(b, "low", getattr(b, "l", 0)) or 0))
-                result["opens"].append(float(getattr(b, "open", getattr(b, "o", 0)) or 0))
-                result["volumes"].append(float(getattr(b, "volume", getattr(b, "v", 0)) or 0))
-            except Exception:
-                continue
-        return result
-    return {}
+    """Alias for shared.build_ohlcv — kept for backward compatibility."""
+    return shared.build_ohlcv(symbol)
 
 def _emit_equity_signals(symbols: list) -> list:
     if not (shared.MARKET_OPEN or shared.EXTENDED_HOURS):
@@ -634,7 +618,7 @@ def run():
                     flow_alerts = list(getattr(shared, "options_flow_alerts", []))
                 try:
                     from agents import risk_manager as _rm
-                    vix = getattr(_rm, "_last_vix", None) or 18.0
+                    vix = _rm.get_last_vix()
                 except Exception:
                     vix = 18.0
 

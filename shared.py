@@ -225,3 +225,36 @@ def publish(event_name: str, payload: dict):
                 q.put_nowait(payload)
             except Exception:
                 pass
+
+
+# ── OHLCV utility (shared to avoid duplication across agents) ──
+def build_ohlcv(symbol: str) -> dict:
+    """Extract OHLCV arrays from historical cache for indicator computation.
+    Returns dict with keys: closes, highs, lows, opens, volumes.
+    Thread-safe — acquires cache_lock internally.
+    """
+    with cache_lock:
+        hist = historical_ohlcv.get(symbol, {})
+    if isinstance(hist, dict) and "closes" in hist:
+        return hist
+    if isinstance(hist, list):
+        result = {"closes": [], "highs": [], "lows": [], "opens": [], "volumes": []}
+        for b in hist:
+            try:
+                result["closes"].append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
+                result["highs"].append(float(getattr(b, "high",  getattr(b, "h", 0)) or 0))
+                result["lows"].append(float(getattr(b, "low",   getattr(b, "l", 0)) or 0))
+                result["opens"].append(float(getattr(b, "open",  getattr(b, "o", 0)) or 0))
+                result["volumes"].append(float(getattr(b, "volume", getattr(b, "v", 0)) or 0))
+            except Exception:
+                continue
+        return result
+    return {}
+
+
+# ── Strategy tag utility ────────────────────────────────────────
+def extract_strategy_tag(client_order_id) -> str:
+    """Extract strategy tag from client_order_id format 'strategy_tag::timestamp'."""
+    if client_order_id and "::" in str(client_order_id):
+        return str(client_order_id).split("::")[0]
+    return "unknown"
