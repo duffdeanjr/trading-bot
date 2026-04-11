@@ -108,6 +108,33 @@ SCREENER_BATCHES_PER_CYCLE = 5      # batches per screener cycle
 # ── data retention ───────────────────────────────────────────
 RETENTION_DAYS = 90                 # purge data older than this from DB
 
+# ── screener timing ──────────────────────────────────────────
+SCREENER_HISTORY_DAYS  = 30        # bars of history fetched per screener scan
+SCREENER_MIN_TENURE_S  = 3600      # seconds a symbol must be on watchlist before demotion
+
+# ── ensemble voting ──────────────────────────────────────────
+ENSEMBLE_MIN_AGREEMENT  = 2        # strategies that must agree for bonus
+ENSEMBLE_AGREEMENT_BONUS = 1.10    # confidence multiplier on agreement
+ENSEMBLE_SOLO_PENALTY    = 0.90    # confidence multiplier for solo signal
+
+# ── strategy scoring ─────────────────────────────────────────
+SCORE_DECAY_HALFLIFE_DAYS = 7      # recency decay half-life in days
+
+# ── regime-based strategy filtering ─────────────────────────
+# Maps market regime string -> set of strategy names to allow (None = all)
+REGIME_STRATEGY_MAP = {
+    "risk-on":  None,              # all strategies enabled
+    "risk-off": {"rsi_overbought", "rsi_oversold", "target_rebalance"},
+    "neutral":  None,
+    "unknown":  None,
+}
+
+# ── correlation-based position sizing ────────────────────────
+CORRELATION_LOOKBACK_DAYS    = 30  # bars used to compute pairwise correlation
+CORRELATION_THRESHOLD        = 0.70 # above this, apply position discount
+CORRELATION_DISCOUNT_FACTOR  = 0.50 # multiply excess correlation by this factor
+KELLY_CONVICTION_OVERRIDE    = 0.12 # skip correlation discount if Kelly >= 12%
+
 # ── watchlist ────────────────────────────────────────────────
 _wl_str = os.getenv("WATCHLIST", "AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,SPY,QQQ,IWM")
 WATCHLIST = [s.strip() for s in _wl_str.split(",") if s.strip()]
