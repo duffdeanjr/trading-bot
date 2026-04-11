@@ -388,9 +388,11 @@ def approve(signal: dict) -> tuple:
     return True, ""
 
 # -- main loop --
+@shared.register_agent("risk_manager", phase=7)
 def run():
     logger.info("risk_manager: starting")
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("risk_manager")
         _check_expiring_options()
         time.sleep(settings.TICK_INTERVAL * 12)
     logger.info("risk_manager: SHUTTING_DOWN -> exiting")

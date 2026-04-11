@@ -196,6 +196,7 @@ def _cancel_all_on_shutdown():
             )
 
 # -- main loop ----------------------------------------------------------------
+@shared.register_agent("order_execution", phase=7)
 def run():
     logger.info("order_exec: starting")
 
@@ -203,6 +204,7 @@ def run():
     _load_open_orders()
 
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("order_execution")
         try:
             if shared.MARKET_OPEN and not shared.RATE_LIMITED:
                 _execute_toward_targets()
@@ -236,12 +238,10 @@ def _execute_toward_targets():
     if not targets:
         return
 
-    with shared.account_lock:
-        acct = shared.account
-    with shared.positions_lock:
-        positions = dict(shared.positions)
+    acct = shared.get_account_snapshot()
+    positions = shared.get_positions_snapshot()
 
-    if acct is None:
+    if acct is None or (isinstance(acct, dict) and not acct):
         return
 
     try:

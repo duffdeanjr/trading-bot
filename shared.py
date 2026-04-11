@@ -1,5 +1,7 @@
 import threading
 import time
+import queue
+from collections import defaultdict
 
 # ─────────────────────────────────────────────────────────────
 # shared.py — single in-memory state hub (HARDENED)
@@ -155,7 +157,7 @@ def heartbeat(agent_name: str):
     AGENT_HEARTBEATS[agent_name] = time.time()
 
 
-def get_stale_agents(timeout_s: float = 60.0) -> list:
+def get_stale_agents(timeout_s: float = 120.0) -> list:
     """Return list of agent names that haven't heartbeated within timeout_s.
     Called by diagnostics."""
     now = time.time()
@@ -164,3 +166,62 @@ def get_stale_agents(timeout_s: float = 60.0) -> list:
         if (now - ts) > timeout_s:
             stale.append((name, now - ts))
     return stale
+
+
+# ─────────────────────────────────────────────────────────────
+# AGENT REGISTRY — decorator-based auto-discovery
+# Agents decorate their run() with @shared.register_agent("name", phase=N).
+# main.py iterates the registry by phase to launch threads.
+# ─────────────────────────────────────────────────────────────
+
+_AGENT_REGISTRY = {}  # name -> {"fn": callable, "phase": int, "condition": callable|None}
+
+
+def register_agent(name, phase=7, condition=None):
+    """Decorator for agent run() functions.
+    phase: startup phase (4=ref_library, 6=account/signal/diag, 7=boss/risk/exec)
+    condition: callable returning bool, or None for always-start
+    """
+    def decorator(fn):
+        _AGENT_REGISTRY[name] = {"fn": fn, "phase": phase, "condition": condition}
+        return fn
+    return decorator
+
+
+def get_registered_agents():
+    """Return a copy of the agent registry for introspection."""
+    return dict(_AGENT_REGISTRY)
+
+
+# ─────────────────────────────────────────────────────────────
+# EVENT BUS — lightweight pub/sub via queue.Queue
+# Agents can publish("signal_emitted", {...}) and others
+# subscribe("signal_emitted") to get a Queue they poll.
+# Opt-in — no existing code needs to change.
+# ─────────────────────────────────────────────────────────────
+
+_event_subscribers = defaultdict(list)  # event_name -> [queue.Queue, ...]
+_event_lock = threading.Lock()
+
+
+def subscribe(event_name: str) -> queue.Queue:
+    """Subscribe to an event. Returns a Queue that receives payloads."""
+    q = queue.Queue(maxsize=100)
+    with _event_lock:
+        _event_subscribers[event_name].append(q)
+    return q
+
+
+def publish(event_name: str, payload: dict):
+    """Publish an event to all subscribers. Non-blocking; drops oldest on overflow."""
+    with _event_lock:
+        subs = list(_event_subscribers.get(event_name, []))
+    for q in subs:
+        try:
+            q.put_nowait(payload)
+        except queue.Full:
+            try:
+                q.get_nowait()  # drop oldest
+                q.put_nowait(payload)
+            except Exception:
+                pass

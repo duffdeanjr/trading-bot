@@ -5,6 +5,12 @@ import logging
 import datetime
 import threading
 
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
+
 import shared
 from config import settings
 from storage.database import (
@@ -150,6 +156,141 @@ def _kelly_size(strategy: str, conviction: float) -> float:
     kelly_f = max(0.0, kelly_f * 0.5) * conviction
 
     return min(kelly_f, settings.MAX_PORTFOLIO_PCT)
+
+
+def _build_correlation_matrix(symbols: list) -> dict:
+    """
+    Build pairwise Pearson correlation matrix from daily closing prices.
+
+    Pulls CORRELATION_LOOKBACK_DAYS (default 30) of closes from
+    shared.historical_ohlcv.  Falls back to 90-day lookback if 30-day
+    data is sparse (<10 days).  Symbols with <10 data points are
+    excluded (treated as uncorrelated).
+
+    Returns {sym_a: {sym_b: float}} for all valid pairs.
+    """
+    if not _HAS_NUMPY or len(symbols) < 2:
+        return {}
+
+    lookback = settings.CORRELATION_LOOKBACK_DAYS  # primary
+    fallback_lookback = 90
+
+    # Gather close arrays per symbol
+    close_arrays: dict = {}
+    with shared.cache_lock:
+        ohlcv_cache = dict(shared.historical_ohlcv)
+
+    for sym in symbols:
+        hist = ohlcv_cache.get(sym, {})
+        if isinstance(hist, dict) and "closes" in hist:
+            closes = hist["closes"]
+        elif isinstance(hist, list):
+            closes = []
+            for b in hist:
+                try:
+                    closes.append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
+                except Exception:
+                    continue
+        else:
+            continue
+
+        # Use last N days of data
+        tail = closes[-lookback:] if len(closes) >= 10 else closes[-fallback_lookback:]
+        if len(tail) < 10:
+            continue  # exclude — not enough data
+        close_arrays[sym] = tail
+
+    if len(close_arrays) < 2:
+        return {}
+
+    # Align arrays to the shortest common length
+    min_len = min(len(v) for v in close_arrays.values())
+    valid_syms = list(close_arrays.keys())
+    aligned = {s: close_arrays[s][-min_len:] for s in valid_syms}
+
+    # Compute pairwise Pearson correlations
+    matrix: dict = {s: {} for s in valid_syms}
+    for i, sym_a in enumerate(valid_syms):
+        arr_a = np.array(aligned[sym_a])
+        for j in range(i + 1, len(valid_syms)):
+            sym_b = valid_syms[j]
+            arr_b = np.array(aligned[sym_b])
+            # Guard against constant arrays (std == 0)
+            if np.std(arr_a) == 0 or np.std(arr_b) == 0:
+                corr = 0.0
+            else:
+                corr = float(np.corrcoef(arr_a, arr_b)[0, 1])
+            matrix[sym_a][sym_b] = corr
+            matrix[sym_b][sym_a] = corr
+
+    return matrix
+
+
+def _apply_correlation_discount(plan: dict):
+    """
+    After Kelly sizing, reduce target weights for highly correlated pairs.
+
+    For each pair with correlation > CORRELATION_THRESHOLD (default 0.70),
+    discount the lower-conviction symbol's target_pct by:
+        (correlation - threshold) * CORRELATION_DISCOUNT_FACTOR
+
+    Skips symbols whose raw Kelly weight >= KELLY_CONVICTION_OVERRIDE (12%).
+    Floors discounted weight at 0.02 (2%) — never zeroes a position.
+    """
+    symbols_in_plan = list(plan.get("symbols", {}).keys())
+    if len(symbols_in_plan) < 2:
+        return
+
+    corr_matrix = _build_correlation_matrix(symbols_in_plan)
+    if not corr_matrix:
+        return
+
+    threshold = settings.CORRELATION_THRESHOLD
+    discount_factor = settings.CORRELATION_DISCOUNT_FACTOR
+    override_floor = settings.KELLY_CONVICTION_OVERRIDE
+
+    # Track which symbols have already been discounted (and by how much)
+    # to avoid double-penalising in multi-correlated clusters
+    for sym_a in symbols_in_plan:
+        entry_a = plan["symbols"].get(sym_a)
+        if not entry_a:
+            continue
+        for sym_b in symbols_in_plan:
+            if sym_b == sym_a:
+                continue
+            entry_b = plan["symbols"].get(sym_b)
+            if not entry_b:
+                continue
+
+            corr = corr_matrix.get(sym_a, {}).get(sym_b)
+            if corr is None or corr <= threshold:
+                continue
+
+            # Determine which is lower conviction
+            conv_a = entry_a.get("conviction", 0.5)
+            conv_b = entry_b.get("conviction", 0.5)
+            if conv_a >= conv_b:
+                weaker_sym, weaker_entry, stronger_sym = sym_b, entry_b, sym_a
+            else:
+                weaker_sym, weaker_entry, stronger_sym = sym_a, entry_a, sym_b
+
+            # Conviction override: skip if raw weight is high enough
+            if weaker_entry["target_pct"] >= override_floor:
+                continue
+
+            # Apply soft discount
+            original = weaker_entry["target_pct"]
+            reduction = (corr - threshold) * discount_factor * original
+            discounted = max(original - reduction, 0.02)
+
+            if discounted < original:
+                weaker_entry["target_pct"] = round(discounted, 4)
+                weaker_entry["correlation_discount_applied"] = True
+                logger.debug(
+                    f"plan_manager: correlation discount {weaker_sym} "
+                    f"{original:.3f} -> {discounted:.3f} "
+                    f"(corr={corr:.2f} with {stronger_sym})"
+                )
 
 
 def _detect_market_regime() -> str:
@@ -326,6 +467,30 @@ def update_plan(signals: list, trigger: str = "signal_batch") -> dict:
     for sym in stale:
         del plan["symbols"][sym]
         notes.append(f"pruned stale: {sym}")
+
+    # Bandit multipliers: adjust raw targets by contextual bandit weights
+    try:
+        from agents import bandit
+        ctx = bandit.build_context_vector(signals)
+        multipliers = bandit.get_multipliers(signals, ctx)
+        for sym, entry in plan.get("symbols", {}).items():
+            strat = entry.get("strategy", "unknown")
+            mult = multipliers.get(strat, 1.0)
+            if mult != 1.0:
+                old_target = entry["target_pct"]
+                entry["target_pct"] = round(old_target * mult, 4)
+                n_obs = bandit.linucb.get_observation_count(strat)
+                logger.debug(
+                    f"plan_manager: bandit multiplier {strat} "
+                    f"x{mult:.2f} (obs={n_obs})"
+                )
+    except ImportError:
+        pass  # numpy not available
+    except Exception as e:
+        logger.debug(f"plan_manager: bandit multiplier error: {e}")
+
+    # Correlation discount pass: reduce correlated, low-conviction positions
+    _apply_correlation_discount(plan)
 
     sector_weights = {}
     for entry in plan["symbols"].values():
@@ -627,6 +792,7 @@ def _continuous_review():
         logger.debug("plan_manager: continuous review — no changes")
 
 
+@shared.register_agent("plan_manager", phase=6)
 def run():
     logger.info("plan_manager: starting")
     plan = load_plan()
@@ -639,6 +805,7 @@ def run():
     last_refresh = 0.0
     last_review = 0.0
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("plan_manager")
         now = time.time()
         try:
             # Hourly: corp action / calendar refresh

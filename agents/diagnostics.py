@@ -93,11 +93,13 @@ def _check_paper_mode():
     elif acct_type and not settings.IS_PAPER and "paper" in acct_type:
         logger.error("diagnostics: IS_PAPER=False but account appears to be PAPER ? check .env")
 
+@shared.register_agent("diagnostics", phase=6)
 def run():
     logger.info("diagnostics: starting")
     status_check_counter = 0
 
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("diagnostics")
         _check_stream_health()
         _check_agent_health()
         _check_rate_limit()

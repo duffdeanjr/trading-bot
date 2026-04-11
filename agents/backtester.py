@@ -15,6 +15,7 @@ import math
 import logging
 import argparse
 import datetime
+import shared
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +321,7 @@ def walk_forward_evaluate():
         )
 
 
+@shared.register_agent("walk_forward", phase=7)
 def walk_forward_loop():
     """
     Daemon-thread entry point. Runs walk_forward_evaluate() once per day.
@@ -330,6 +332,7 @@ def walk_forward_loop():
 
     logger.info("backtester: walk-forward loop starting (daily evaluation)")
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("walk_forward")
         try:
             walk_forward_evaluate()
         except Exception as e:
@@ -338,6 +341,7 @@ def walk_forward_loop():
         for _ in range(24 * 60):
             if shared.SHUTTING_DOWN:
                 break
+            shared.heartbeat("walk_forward")
             time.sleep(60)
     logger.info("backtester: walk-forward loop exiting")
 

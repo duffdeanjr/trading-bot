@@ -25,6 +25,30 @@ def _get_market_open():
     except Exception:
         return getattr(shared, "MARKET_OPEN", False) if HAS_BOT else False
 
+def _get_stream_health():
+    """Return real stream heartbeat data from alpaca_local.stream."""
+    now = time.time()
+    names = ["trade", "stock", "crypto", "option", "news"]
+    result = {}
+    hb = {}
+    rc = {}
+    try:
+        from alpaca_local import stream as st
+        hb = st.get_heartbeats()
+        rc = st.get_reconnect_counts()
+    except Exception:
+        pass
+    for name in names:
+        ts = hb.get(name, 0)
+        age = round(now - ts, 1) if ts > 0 else None
+        reconnects = rc.get(name, 0)
+        result[name] = {
+            "last_msg_age": age,
+            "reconnects": reconnects,
+            "connected": ts > 0,
+        }
+    return result
+
 def _db_path():
     p = settings.DB_PATH
     if not os.path.isabs(p):
@@ -61,6 +85,16 @@ def api_data():
     signals = query("SELECT ts,symbol,strategy,side,confidence,sentiment FROM signals ORDER BY ts DESC LIMIT 20")
     outcomes = query("SELECT symbol,strategy,side,pnl,pnl_pct,status FROM outcomes ORDER BY COALESCE(exit_ts, entry_ts) DESC LIMIT 20")
     scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
+    strategy_attribution = query("""
+        SELECT strategy,
+               date(exit_ts, 'unixepoch') as day,
+               SUM(pnl) as total_pnl,
+               COUNT(*) as trade_count
+        FROM outcomes
+        WHERE status = 'closed' AND pnl IS NOT NULL AND exit_ts IS NOT NULL
+        GROUP BY strategy, day
+        ORDER BY day ASC
+    """)
     plan_history = query("SELECT version, ts, trigger, summary FROM investment_plans ORDER BY version DESC LIMIT 10")
 
     # News articles (today + recent)
@@ -88,7 +122,7 @@ def api_data():
     try:
         import requests as _req
         _headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
-        _r = _req.get(f'{settings.BASE_URL}/v2/account/portfolio/history?period=1M&timeframe=1D',
+        _r = _req.get(f'{settings.BASE_URL}/v2/account/portfolio/history?period=1A&timeframe=1D',
                       headers=_headers, timeout=10)
         if _r.status_code == 200:
             _ph = _r.json()
@@ -136,7 +170,8 @@ def api_data():
             errors_snap = {}
         agent_names = ["ref_library", "account_agent", "signal_generator",
                        "plan_manager", "order_execution", "risk_manager",
-                       "boss", "diagnostics"]
+                       "boss", "diagnostics", "screener", "walk_forward",
+                       "plan_reviewer", "strategy_factory", "bandit_harvester"]
         now = time.time()
         for name in agent_names:
             info = errors_snap.get(name, {})
@@ -230,6 +265,7 @@ def api_data():
         "signals":           signals,
         "outcomes":          outcomes,
         "strategy_scores":   scores,
+        "strategy_attribution": strategy_attribution,
         "server_ts":         time.time(),
         "account":           account_data,
         "agent_status":      agent_status,
@@ -245,6 +281,7 @@ def api_data():
         "live_heat":         round(total_mv / equity * 100, 1) if equity > 0 else 0,
         "rejections":        rejections,
         "news_articles":     news_articles,
+        "stream_health":     _get_stream_health(),
     }
 
 
@@ -408,6 +445,72 @@ def exec_update_parameters(handler):
     _json_response(handler, {"status": "ok", "updated": updated})
 
 
+def api_bandit():
+    """Return bandit performance data for dashboard."""
+    result = {
+        "mode": "shadow",
+        "total_observations": 0,
+        "alpha": 0.3,
+        "days_until_live": 30,
+        "top_strategies": [],
+        "bottom_strategies": [],
+        "recent_decisions": [],
+    }
+
+    try:
+        from agents import bandit as bandit_mod
+        info = bandit_mod.get_mode_info()
+        result.update(info)
+    except Exception:
+        pass
+
+    # Per-strategy stats from bandit_decisions
+    try:
+        strat_stats = query("""
+            SELECT strategy_id,
+                   AVG(reward_computed) as avg_reward,
+                   COUNT(*) as observations,
+                   AVG(multiplier_applied) as avg_multiplier
+            FROM bandit_decisions
+            WHERE evaluated = 1 AND reward_computed IS NOT NULL
+            GROUP BY strategy_id
+            ORDER BY avg_reward DESC
+        """)
+
+        if strat_stats:
+            result["top_strategies"] = [
+                {"id": s["strategy_id"], "multiplier": round(s["avg_multiplier"] or 1.0, 3),
+                 "observations": s["observations"], "avg_reward": round(s["avg_reward"] or 0, 4)}
+                for s in strat_stats[:5]
+            ]
+            result["bottom_strategies"] = [
+                {"id": s["strategy_id"], "multiplier": round(s["avg_multiplier"] or 1.0, 3),
+                 "observations": s["observations"], "avg_reward": round(s["avg_reward"] or 0, 4)}
+                for s in strat_stats[-5:]
+            ] if len(strat_stats) > 5 else []
+    except Exception:
+        pass
+
+    # Recent decisions
+    try:
+        recent = query("""
+            SELECT ts, strategy_id, multiplier_applied, reward_computed, shadow_mode
+            FROM bandit_decisions
+            ORDER BY ts DESC LIMIT 20
+        """)
+        result["recent_decisions"] = [
+            {"ts": r["ts"], "strategy_id": r["strategy_id"],
+             "multiplier": round(r["multiplier_applied"] or 1.0, 3),
+             "reward": round(r["reward_computed"], 4) if r["reward_computed"] is not None else None,
+             "shadow": bool(r["shadow_mode"])}
+            for r in recent
+        ]
+    except Exception:
+        pass
+
+    return result
+
+
 POST_ROUTES = {
     "/api/exec/pause":           exec_pause,
     "/api/exec/resume":          exec_resume,
@@ -446,6 +549,20 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 tb = traceback.format_exc()
                 print("API ERROR:", tb)
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(tb.encode())
+        elif path == "/api/bandit":
+            try:
+                body = json.dumps(api_bandit()).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                tb = traceback.format_exc()
+                print("BANDIT API ERROR:", tb)
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(tb.encode())

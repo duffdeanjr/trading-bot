@@ -9,7 +9,7 @@
 <style>
 /* ── Reset & Base ──────────────────────────────────────────── */
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-canvas[height] { display: block; }
+canvas[height] { display: block; background: var(--bg-void); }
 canvas#chartIntraday { height: 100px !important; }
 canvas#chartEquity { height: 130px !important; }
 canvas#chartDailyPnl { height: 110px !important; }
@@ -17,6 +17,9 @@ canvas#chartDistribution { height: 110px !important; }
 canvas#chartSignalConf { height: 100px !important; }
 canvas#chartHeartbeat { height: 50px !important; }
 canvas#chartRejections { height: 100px !important; }
+canvas#chartDrawdown { height: 110px !important; }
+canvas#chartPnlCalendar { height: 160px !important; }
+canvas#chartStratAttribution { height: 140px !important; }
 :root {
   --bg-void: #060a14;
   --bg-card: rgba(255,255,255,0.04);
@@ -108,6 +111,18 @@ a { color: var(--cyan); text-decoration: none; }
 .tab-content { display: none; }
 .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
 @keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
+
+/* ── Subtabs ──────────────────────────────────────────────── */
+.subtabs { display: flex; gap: 4px; margin-bottom: 18px; padding: 3px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); width: fit-content; }
+.subtab {
+  padding: 6px 16px; border-radius: var(--radius-xs); font-size: 13px; font-weight: 500;
+  color: var(--text-4); background: transparent; border: 1px solid transparent;
+  cursor: pointer; transition: all 0.2s; user-select: none;
+}
+.subtab:hover { color: var(--text-2); }
+.subtab.active { color: var(--cyan); background: rgba(34,211,255,0.08); border-color: rgba(34,211,255,0.15); }
+.subtab-content { display: none; }
+.subtab-content.active { display: block; }
 
 /* ── Cards ─────────────────────────────────────────────────── */
 .card {
@@ -317,10 +332,11 @@ a { color: var(--cyan); text-decoration: none; }
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <span class="card-label" style="margin:0;">Equity curve</span>
         <div style="display:flex;gap:6px;" id="eqToggles">
-          <span class="badge badge-live" style="cursor:pointer;font-size:12px;">1M</span>
-          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">3M</span>
-          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">YTD</span>
-          <span style="color:var(--text-4);font-size:13px;padding:2px 8px;cursor:pointer;">ALL</span>
+          <span class="badge" data-period="1W" style="cursor:pointer;font-size:12px;color:var(--text-4);padding:2px 8px;">1W</span>
+          <span class="badge badge-live" data-period="1M" style="cursor:pointer;font-size:12px;">1M</span>
+          <span class="badge" data-period="3M" style="cursor:pointer;font-size:12px;color:var(--text-4);padding:2px 8px;">3M</span>
+          <span class="badge" data-period="YTD" style="cursor:pointer;font-size:12px;color:var(--text-4);padding:2px 8px;">YTD</span>
+          <span class="badge" data-period="ALL" style="cursor:pointer;font-size:12px;color:var(--text-4);padding:2px 8px;">ALL</span>
         </div>
       </div>
       <canvas id="chartEquity" height="130"></canvas>
@@ -367,120 +383,169 @@ a { color: var(--cyan); text-decoration: none; }
     </div>
 
     <!-- Trade Log -->
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span class="card-label" style="margin:0;">Trade log (filtered)</span>
-        <span style="color:var(--text-4);font-size:12px;">hiding $0 fills · aggregated</span>
+    <div class="grid-2 mb">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-label" style="margin:0;">Stock & Crypto Trades</span>
+          <span style="color:var(--text-4);font-size:12px;">hiding $0 fills</span>
+        </div>
+        <div class="scroll-y" style="max-height:260px;">
+          <table class="trade-table">
+            <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th>Strategy</th></tr></thead>
+            <tbody id="stockTradeBody"></tbody>
+          </table>
+        </div>
+        <div class="show-more" id="stockTradeMore"></div>
       </div>
-      <div class="scroll-y">
-        <table class="trade-table">
-          <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th>Strategy</th></tr></thead>
-          <tbody id="tradeLogBody"></tbody>
-        </table>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-label" style="margin:0;">Options Trades</span>
+          <span style="color:var(--text-4);font-size:12px;">hiding $0 fills</span>
+        </div>
+        <div class="scroll-y" style="max-height:260px;">
+          <table class="trade-table">
+            <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th>Strategy</th></tr></thead>
+            <tbody id="optionTradeBody"></tbody>
+          </table>
+        </div>
+        <div class="show-more" id="optionTradeMore"></div>
       </div>
-      <div class="show-more" id="tradeLogMore"></div>
     </div>
   </div>
 
   <!-- ═══════════════════════════ TAB 2: PERFORMANCE ══════════════ -->
   <div class="tab-content" id="tab-performance">
 
-    <!-- Stat Cards -->
-    <div class="grid-5 mb">
-      <div class="card stat-card">
-        <div class="card-label">Net P&L</div>
-        <div class="card-value" id="netPnl">—</div>
-      </div>
-      <div class="card stat-card">
-        <div class="card-label">Win rate</div>
-        <div class="card-value" id="perfWinRate">—</div>
-      </div>
-      <div class="card stat-card">
-        <div class="card-label">Total trades</div>
-        <div class="card-value" id="totalTrades">—</div>
-      </div>
-      <div class="card stat-card">
-        <div class="card-label">Avg win</div>
-        <div class="card-value pnl-pos" id="avgWin">—</div>
-      </div>
-      <div class="card stat-card">
-        <div class="card-label">Avg loss</div>
-        <div class="card-value pnl-neg" id="avgLoss">—</div>
-      </div>
+    <!-- Subtab toggles -->
+    <div class="subtabs" id="perfSubtabs">
+      <div class="subtab active" data-subtab="pnl">P&L</div>
+      <div class="subtab" data-subtab="strategy">Strategy</div>
     </div>
 
-    <!-- Intraday P&L Chart -->
-    <div class="card mb">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <span class="card-label" style="margin:0;">Intraday P&L</span>
-        <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
-      </div>
-      <canvas id="chartIntraday" height="100"></canvas>
-    </div>
+    <!-- ── Subtab: P&L ─────────────────────────────────────────── -->
+    <div class="subtab-content active" id="subtab-pnl">
 
-    <!-- Daily P&L / Trade Distribution -->
-    <div class="grid-2 mb">
-      <div class="card">
-        <div class="card-label">Daily P&L (last 14 days)</div>
-        <canvas id="chartDailyPnl" height="110"></canvas>
-      </div>
-      <div class="card">
-        <div class="card-label">Trade P&L distribution</div>
-        <canvas id="chartDistribution" height="110"></canvas>
-      </div>
-    </div>
-
-    <!-- Strategy Performance / Trades by Strategy -->
-    <div class="grid-2 mb">
-      <div class="card">
-        <div class="card-label">Strategy performance</div>
-        <div id="stratPerf"></div>
-      </div>
-      <div class="card">
-        <div class="card-label">Trades by strategy</div>
-        <div class="donut-wrap" style="justify-content:center;">
-          <canvas id="chartStratMix" width="90" height="90"></canvas>
-          <div class="donut-legend" id="stratLegend"></div>
+      <!-- Stat Cards -->
+      <div class="grid-5 mb">
+        <div class="card stat-card">
+          <div class="card-label">Net P&L</div>
+          <div class="card-value" id="netPnl">—</div>
+        </div>
+        <div class="card stat-card">
+          <div class="card-label">Win rate</div>
+          <div class="card-value" id="perfWinRate">—</div>
+        </div>
+        <div class="card stat-card">
+          <div class="card-label">Total trades</div>
+          <div class="card-value" id="totalTrades">—</div>
+        </div>
+        <div class="card stat-card">
+          <div class="card-label">Avg win</div>
+          <div class="card-value pnl-pos" id="avgWin">—</div>
+        </div>
+        <div class="card stat-card">
+          <div class="card-label">Avg loss</div>
+          <div class="card-value pnl-neg" id="avgLoss">—</div>
         </div>
       </div>
-    </div>
 
-    <!-- Investment Plan -->
-    <div class="card mb">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <span class="card-label" style="margin:0;">Investment plan</span>
-        <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
+      <!-- Drawdown from Peak -->
+      <div class="card mb">
+        <div class="card-label">Drawdown from peak</div>
+        <canvas id="chartDrawdown" height="110"></canvas>
       </div>
-      <div id="planTargets"></div>
-    </div>
 
-    <!-- Options Activity / Screener Discoveries -->
-    <div class="grid-2 mb">
-      <div class="card">
-        <div class="card-label">Options Activity</div>
-        <div id="optionsActivity" style="max-height:200px;overflow-y:auto;"></div>
+      <!-- Intraday P&L Chart -->
+      <div class="card mb">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <span class="card-label" style="margin:0;">Intraday P&L</span>
+          <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
+        </div>
+        <canvas id="chartIntraday" height="100"></canvas>
       </div>
-      <div class="card">
-        <div class="card-label">Screener Discoveries</div>
-        <div id="screenerActivity" style="max-height:200px;overflow-y:auto;"></div>
-      </div>
-    </div>
 
-    <!-- Order Rejections / Signal Confidence -->
-    <div class="grid-2 mb">
-      <div class="card">
-        <div class="card-label">Order rejections (risk manager)</div>
-        <canvas id="chartRejections" height="100"></canvas>
-      </div>
-      <div class="card">
-        <div class="card-label">Signal confidence scatter</div>
-        <canvas id="chartSignalConf" height="100"></canvas>
-        <div style="display:flex;justify-content:space-between;margin-top:4px;">
-          <span style="color:var(--text-4);font-size:11px;">oldest</span>
-          <span style="color:var(--text-4);font-size:11px;">Green = profitable · Red = loss</span>
-          <span style="color:var(--text-4);font-size:11px;">newest</span>
+      <!-- Daily P&L / Trade Distribution -->
+      <div class="grid-2 mb">
+        <div class="card">
+          <div class="card-label">Daily P&L (last 14 days)</div>
+          <canvas id="chartDailyPnl" height="110"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-label">Trade P&L distribution</div>
+          <canvas id="chartDistribution" height="110"></canvas>
         </div>
       </div>
+
+      <!-- P&L Calendar Heatmap -->
+      <div class="card mb">
+        <div class="card-label">P&L calendar</div>
+        <canvas id="chartPnlCalendar" height="160"></canvas>
+      </div>
+
+    </div>
+
+    <!-- ── Subtab: Strategy ────────────────────────────────────── -->
+    <div class="subtab-content" id="subtab-strategy">
+
+      <!-- Strategy Performance / Trades by Strategy -->
+      <div class="grid-2 mb">
+        <div class="card">
+          <div class="card-label">Strategy performance</div>
+          <div id="stratPerf"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Trades by strategy</div>
+          <div class="donut-wrap" style="justify-content:center;">
+            <canvas id="chartStratMix" width="90" height="90"></canvas>
+            <div class="donut-legend" id="stratLegend"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Strategy Attribution (Stacked Bar) -->
+      <div class="card mb">
+        <div class="card-label">P&L by strategy (cumulative)</div>
+        <canvas id="chartStratAttribution" height="140"></canvas>
+      </div>
+
+      <!-- Investment Plan -->
+      <div class="card mb">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span class="card-label" style="margin:0;">Investment plan</span>
+          <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
+        </div>
+        <div id="planTargets"></div>
+      </div>
+
+      <!-- Options Activity / Screener Discoveries -->
+      <div class="grid-2 mb">
+        <div class="card">
+          <div class="card-label">Options Activity</div>
+          <div id="optionsActivity" style="max-height:200px;overflow-y:auto;"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Screener Discoveries</div>
+          <div id="screenerActivity" style="max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      <!-- Order Rejections / Signal Confidence -->
+      <div class="grid-2 mb">
+        <div class="card">
+          <div class="card-label">Order rejections (risk manager)</div>
+          <canvas id="chartRejections" height="100"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-label">Signal confidence scatter</div>
+          <canvas id="chartSignalConf" height="100"></canvas>
+          <div style="display:flex;justify-content:space-between;margin-top:4px;">
+            <span style="color:var(--text-4);font-size:11px;">oldest</span>
+            <span style="color:var(--text-4);font-size:11px;">Green = profitable · Red = loss</span>
+            <span style="color:var(--text-4);font-size:11px;">newest</span>
+          </div>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -675,6 +740,23 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
+// ── Subtab switching (Performance tab) ──
+document.getElementById('perfSubtabs').addEventListener('click', e => {
+  const btn = e.target.closest('.subtab');
+  if (!btn) return;
+  const target = btn.dataset.subtab;
+  // Toggle active on buttons
+  document.querySelectorAll('#perfSubtabs .subtab').forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  // Toggle active on content panes
+  document.querySelectorAll('#tab-performance .subtab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('subtab-' + target).classList.add('active');
+  // Re-render charts for the newly visible subtab
+  _canvasSizes.clear();
+  _chartsDrawn['performance'] = false;
+  requestAnimationFrame(() => renderCharts());
+});
+
 // ══════════════════════════════════════════════════════════════════
 //  CLOCK
 // ══════════════════════════════════════════════════════════════════
@@ -749,8 +831,9 @@ async function fetchData() {
         pnl_pct: parseFloat(o.pnl_pct || 0),
         status: o.status,
       })),
-      // Strategy scores
+      // Strategy scores + attribution
       strategy_scores: raw.strategy_scores || [],
+      strategy_attribution: raw.strategy_attribution || [],
       // Agents
       agent_status: raw.agent_status || [],
       // Allocation & concentration (pre-computed by dashboard.py)
@@ -769,6 +852,7 @@ async function fetchData() {
       screener_activity: raw.screener_activity || [],
       options_trades: (raw.options_trades || []).filter(t => t.qty > 0 && t.price > 0),
       rejections: raw.rejections || [],
+      stream_health: raw.stream_health || {},
       // Errors from agent_logs
       errors: (raw.errors || []).map(e => ({
         msg: `${e.agent}: ${(e.message || '').substring(0, 60)}`,
@@ -999,12 +1083,20 @@ function renderCharts() {
     renderAllocation();
   }
   if (activeTab === 'performance') {
-    renderIntradayChart(positions);
-    renderDailyPnl();
-    renderDistribution(outcomes);
-    renderSignalConfidence(signals);
-    renderStrategyMix(trades);
-    renderRejections();
+    const activeSubtab = document.querySelector('#perfSubtabs .subtab.active')?.dataset.subtab || 'pnl';
+    if (activeSubtab === 'pnl') {
+      renderDrawdown();
+      renderIntradayChart(positions);
+      renderDailyPnl();
+      renderPnlCalendar();
+      renderDistribution(outcomes);
+    }
+    if (activeSubtab === 'strategy') {
+      renderSignalConfidence(signals);
+      renderStrategyMix(trades);
+      renderStratAttribution();
+      renderRejections();
+    }
   }
   if (activeTab === 'command') {
   }
@@ -1264,80 +1356,480 @@ function renderAgentDots() {
 
 // ── Performance Tab Renders ──
 
+// Equity chart period state + tooltip data
+let equityPeriod = '1M';
+let _equityChartData = { points: [], timestamps: [], values: [] };
+
+function filterByPeriod(hist, period) {
+  if (!hist || hist.length === 0) return hist;
+  const now = Date.now() / 1000;
+  const cutoffs = {
+    '1W': 7 * 86400,
+    '1M': 31 * 86400,
+    '3M': 92 * 86400,
+    'YTD': (now - new Date(new Date().getFullYear(), 0, 1).getTime() / 1000),
+    'ALL': Infinity,
+  };
+  const cutoff = cutoffs[period] || cutoffs['1M'];
+  if (cutoff === Infinity) return hist;
+  return hist.filter(h => (now - h.ts) <= cutoff);
+}
+
+// Period toggle click handler
+document.getElementById('eqToggles').addEventListener('click', e => {
+  const btn = e.target.closest('[data-period]');
+  if (!btn) return;
+  equityPeriod = btn.dataset.period;
+  document.querySelectorAll('#eqToggles > span').forEach(s => {
+    if (s.dataset.period === equityPeriod) {
+      s.className = 'badge badge-live';
+      s.style.color = '';
+    } else {
+      s.className = 'badge';
+      s.style.color = 'var(--text-4)';
+    }
+  });
+  _chartsDrawn['dashboard'] = false;
+  renderEquityCurve();
+});
+
 function renderEquityCurve() {
   const canvas = $('chartEquity');
   const ctx = clearCanvas(canvas);
   if (!ctx) return;
   const w = ctx._w, h = ctx._h;
   const pad = 45, padBot = 20;
+  const plotH = h - padBot - 10;
+  const plotTop = 5;
 
-  // Use real portfolio history if available
-  const hist = state.portfolio_history || [];
+  // Data
+  const allHist = state.portfolio_history || [];
+  const hist = filterByPeriod(allHist, equityPeriod);
   let pts, timestamps;
   if (hist.length >= 2) {
     pts = hist.map(h => h.equity);
     timestamps = hist.map(h => new Date(h.ts * 1000));
   } else {
-    // Fallback: synthetic from initial to current
-    const n = 30, equity = state.equity || 100000;
-    pts = Array.from({length: n}, (_, i) => 100000 + (equity - 100000) * ((i+1)/n));
+    const nn = 30, equity = state.equity || 100000;
+    pts = Array.from({length: nn}, (_, i) => 100000 + (equity - 100000) * ((i+1)/nn));
     const today = new Date();
-    timestamps = Array.from({length: n}, (_, i) => { const d = new Date(today); d.setDate(d.getDate() - (n-1-i)); return d; });
+    timestamps = Array.from({length: nn}, (_, i) => { const d = new Date(today); d.setDate(d.getDate() - (nn-1-i)); return d; });
   }
 
   const n = pts.length;
-  const min = Math.min(...pts) - 50;
-  const max = Math.max(...pts) + 50;
+  const rawMin = Math.min(...pts);
+  const rawMax = Math.max(...pts);
+  const padding = Math.max((rawMax - rawMin) * 0.2, 20);
+  const min = rawMin - padding;
+  const max = rawMax + padding;
   const range = max - min || 1;
-
-  // Grid lines
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-  ctx.lineWidth = 0.5;
-  for (let i = 0; i < 4; i++) {
-    const y = (i / 3) * (h - padBot - 5) + 5;
-    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w, y); ctx.stroke();
-  }
 
   // Y labels
   ctx.font = '9px JetBrains Mono';
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.fillText('$' + Math.round(max).toLocaleString(), 0, 12);
-  ctx.fillText('$' + Math.round((max + min) / 2).toLocaleString(), 0, (h - padBot) / 2 + 3);
-  ctx.fillText('$' + Math.round(min).toLocaleString(), 0, h - padBot - 2);
+  ctx.fillText('$' + Math.round(max).toLocaleString(), 0, plotTop + 7);
+  ctx.fillText('$' + Math.round(min).toLocaleString(), 0, plotTop + plotH - 2);
 
-  // Line points
-  const linePoints = pts.map((v, i) => [
-    pad + (i / (n - 1)) * (w - pad),
-    5 + (1 - (v - min) / range) * (h - padBot - 10)
+  // Map to pixel coords
+  const lp = pts.map((v, i) => [
+    pad + (i / (n - 1)) * (w - pad - 4),
+    plotTop + (1 - (v - min) / range) * plotH
   ]);
+  _equityChartData = { points: lp, timestamps, values: pts };
 
-  const isUp = pts[pts.length - 1] >= pts[0];
+  const isUp = pts[n - 1] >= pts[0];
   const lineColor = isUp ? '#00ff88' : '#ff4466';
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, isUp ? 'rgba(0,255,136,0.2)' : 'rgba(255,68,102,0.2)');
-  grad.addColorStop(1, isUp ? 'rgba(0,255,136,0)' : 'rgba(255,68,102,0)');
-  drawLine(ctx, linePoints, lineColor, 2, grad);
+
+  // Fill under line
+  const grad = ctx.createLinearGradient(0, plotTop, 0, plotTop + plotH);
+  grad.addColorStop(0, isUp ? 'rgba(0,255,136,0.15)' : 'rgba(255,68,102,0.15)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.moveTo(lp[0][0], lp[0][1]);
+  for (let i = 1; i < n; i++) ctx.lineTo(lp[i][0], lp[i][1]);
+  ctx.lineTo(lp[n-1][0], plotTop + plotH);
+  ctx.lineTo(lp[0][0], plotTop + plotH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(lp[0][0], lp[0][1]);
+  for (let i = 1; i < n; i++) ctx.lineTo(lp[i][0], lp[i][1]);
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
 
   // Dot at end
-  const last = linePoints[linePoints.length - 1];
   ctx.beginPath();
-  ctx.arc(last[0], last[1], 3, 0, Math.PI * 2);
+  ctx.arc(lp[n-1][0], lp[n-1][1], 3, 0, Math.PI * 2);
   ctx.fillStyle = lineColor;
   ctx.fill();
 
-  // X-axis date labels
+  // X-axis labels
   ctx.font = '8px JetBrains Mono';
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   const labelCount = Math.min(5, n);
   for (let i = 0; i < labelCount; i++) {
     const idx = Math.round(i * (n - 1) / (labelCount - 1));
+    const x = lp[idx][0];
+    const d = timestamps[idx];
+    ctx.fillText((d.getMonth()+1) + '/' + d.getDate(), x - 12, h - 3);
+  }
+}
+
+// ── Equity Chart Hover Tooltip ──
+(function() {
+  const canvas = $('chartEquity');
+  if (!canvas) return;
+
+  canvas.addEventListener('mousemove', function(e) {
+    const data = _equityChartData;
+    if (!data.points || data.points.length < 2) return;
+
+    const rect = this.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const scaleX = this.width / rect.width;
+    const canvasX = x; // CSS coords (clearCanvas scales 2x internally)
+
+    // Find nearest point
+    let nearest = 0, minDist = Infinity;
+    for (let i = 0; i < data.points.length; i++) {
+      const dist = Math.abs(data.points[i][0] - canvasX);
+      if (dist < minDist) { minDist = dist; nearest = i; }
+    }
+
+    // Redraw chart then overlay
+    renderEquityCurve();
+    const ctx = this.getContext('2d');
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(2, 2);
+
+    const pt = data.points[nearest];
+    const val = data.values[nearest];
+    const dt = data.timestamps[nearest];
+    const prevVal = nearest > 0 ? data.values[nearest - 1] : val;
+    const change = val - prevVal;
+    const changePct = prevVal > 0 ? ((change / prevVal) * 100).toFixed(2) : '0.00';
+
+    // Crosshair
+    ctx.strokeStyle = 'rgba(34,211,255,0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(pt[0], 0);
+    ctx.lineTo(pt[0], ctx._h || 130);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Tooltip box
+    const dateStr = dt ? `${dt.getMonth()+1}/${dt.getDate()}/${dt.getFullYear()}` : '';
+    const valStr = '$' + Math.round(val).toLocaleString();
+    const changeStr = (change >= 0 ? '+' : '') + '$' + Math.round(change).toLocaleString() + ' (' + (change >= 0 ? '+' : '') + changePct + '%)';
+
+    const boxW = 140, boxH = 42;
+    let boxX = pt[0] + 10;
+    if (boxX + boxW > (ctx._w || 400)) boxX = pt[0] - boxW - 10;
+    const boxY = Math.max(2, pt[1] - boxH - 5);
+
+    ctx.fillStyle = 'rgba(6,10,20,0.95)';
+    ctx.strokeStyle = 'rgba(34,211,255,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '9px JetBrains Mono';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText(dateStr, boxX + 6, boxY + 13);
+    ctx.fillStyle = '#f5f5fa';
+    ctx.font = '10px JetBrains Mono';
+    ctx.fillText(valStr, boxX + 6, boxY + 26);
+    ctx.fillStyle = change >= 0 ? '#00ff88' : '#ff4466';
+    ctx.font = '9px JetBrains Mono';
+    ctx.fillText(changeStr, boxX + 6, boxY + 38);
+
+    // Highlight dot
+    ctx.beginPath();
+    ctx.arc(pt[0], pt[1], 4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(34,211,255,0.8)';
+    ctx.fill();
+
+    ctx.restore();
+  });
+
+  canvas.addEventListener('mouseleave', function() {
+    renderEquityCurve();
+  });
+})();
+
+// ── Drawdown from Peak Chart ──
+function renderDrawdown() {
+  const canvas = $('chartDrawdown');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  const pad = 40, padBot = 18;
+
+  const allHist = state.portfolio_history || [];
+  const hist = filterByPeriod(allHist, equityPeriod);
+  if (hist.length < 2) {
+    ctx.font = '12px Outfit';
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillText('Waiting for portfolio data...', w/2 - 80, h/2);
+    return;
+  }
+
+  const equities = hist.map(h => h.equity);
+  let runMax = equities[0];
+  const drawdowns = equities.map(eq => {
+    runMax = Math.max(runMax, eq);
+    return runMax > 0 ? (eq - runMax) / runMax : 0;
+  });
+
+  const minDD = Math.min(...drawdowns);
+  const range = Math.abs(minDD) || 0.01;
+
+  // Zero line at top
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(pad, 5); ctx.lineTo(w, 5); ctx.stroke();
+
+  // Build line points (0% at top, max drawdown at bottom)
+  const linePoints = drawdowns.map((dd, i) => [
+    pad + (i / (drawdowns.length - 1)) * (w - pad),
+    5 + (Math.abs(dd) / range) * (h - padBot - 10)
+  ]);
+
+  // Red filled area
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(255,68,102,0.35)');
+  grad.addColorStop(1, 'rgba(255,68,102,0)');
+  drawLine(ctx, linePoints, '#ff4466', 1.5, grad);
+
+  // Y-axis labels
+  ctx.font = '9px JetBrains Mono';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillText('0%', 2, 12);
+  ctx.fillText((minDD * 100).toFixed(1) + '%', 2, h - padBot + 2);
+
+  // X-axis date labels
+  const timestamps = hist.map(h => new Date(h.ts * 1000));
+  ctx.font = '8px JetBrains Mono';
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  const labelCount = Math.min(4, hist.length);
+  for (let i = 0; i < labelCount; i++) {
+    const idx = Math.round(i * (hist.length - 1) / (labelCount - 1));
     const x = linePoints[idx][0];
     const d = timestamps[idx];
-    const label = (d.getMonth() + 1) + '/' + d.getDate();
-    ctx.fillText(label, x - 12, h - 3);
-    ctx.beginPath(); ctx.moveTo(x, h - padBot); ctx.lineTo(x, h - padBot + 4); ctx.stroke();
+    ctx.fillText((d.getMonth()+1) + '/' + d.getDate(), x - 10, h - 2);
   }
+}
+
+// ── P&L Calendar Heatmap ──
+function renderPnlCalendar() {
+  const canvas = $('chartPnlCalendar');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+
+  const hist = state.portfolio_history || [];
+  if (hist.length < 2) {
+    ctx.font = '12px Outfit';
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillText('Waiting for portfolio data...', w/2 - 80, h/2);
+    return;
+  }
+
+  // Build day -> pnl map
+  const dayPnl = {};
+  hist.forEach(h => {
+    const d = new Date(h.ts * 1000);
+    const key = d.toISOString().slice(0, 10);
+    dayPnl[key] = h.pnl || 0;
+  });
+
+  const dates = Object.keys(dayPnl).sort();
+  const startDate = new Date(dates[0]);
+  const endDate = new Date(dates[dates.length - 1]);
+
+  // Layout: rows = 7 (Mon-Sun), columns = weeks
+  const leftPad = 24, topPad = 16;
+  const gap = 2;
+  const totalDays = Math.ceil((endDate - startDate) / 86400000) + 1;
+  const totalWeeks = Math.ceil(totalDays / 7) + 1;
+  const cellSize = Math.min(14, Math.max(6, (w - leftPad - 10) / totalWeeks - gap));
+
+  // Color scale
+  const maxPnl = Math.max(...Object.values(dayPnl).map(Math.abs), 1);
+  function pnlColor(pnl) {
+    const intensity = Math.min(Math.abs(pnl) / maxPnl, 1);
+    if (pnl >= 0) return `rgba(0,255,136,${(0.15 + intensity * 0.6).toFixed(2)})`;
+    return `rgba(255,68,102,${(0.15 + intensity * 0.6).toFixed(2)})`;
+  }
+
+  // Day labels (left side)
+  ctx.font = '8px JetBrains Mono';
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  const dayLabels = ['', 'M', '', 'W', '', 'F', ''];
+  dayLabels.forEach((label, i) => {
+    if (label) ctx.fillText(label, 4, topPad + i * (cellSize + gap) + cellSize - 2);
+  });
+
+  // Draw cells
+  let currentDate = new Date(startDate);
+  let lastMonth = -1;
+  while (currentDate <= endDate) {
+    const key = currentDate.toISOString().slice(0, 10);
+    const dayOfWeek = (currentDate.getDay() + 6) % 7; // Mon=0, Sun=6
+    const weeksSinceStart = Math.floor((currentDate - startDate) / (7 * 86400000));
+    const x = leftPad + weeksSinceStart * (cellSize + gap);
+    const y = topPad + dayOfWeek * (cellSize + gap);
+
+    // Month label
+    const month = currentDate.getMonth();
+    if (month !== lastMonth && dayOfWeek <= 1) {
+      ctx.font = '8px JetBrains Mono';
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      ctx.fillText(monthNames[month], x, topPad - 4);
+      lastMonth = month;
+    }
+
+    // Cell
+    if (dayPnl[key] !== undefined) {
+      ctx.fillStyle = pnlColor(dayPnl[key]);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    }
+    ctx.beginPath();
+    ctx.roundRect(x, y, cellSize, cellSize, 2);
+    ctx.fill();
+
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+}
+
+// ── Strategy Attribution Stacked Bar ──
+function renderStratAttribution() {
+  const canvas = $('chartStratAttribution');
+  const ctx = clearCanvas(canvas);
+  if (!ctx) return;
+  const w = ctx._w, h = ctx._h;
+  const pad = 40, padBot = 20, padTop = 10;
+
+  const data = state.strategy_attribution || [];
+  if (data.length === 0) {
+    ctx.font = '12px Outfit';
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillText('Waiting for closed trades...', w/2 - 80, h/2);
+    return;
+  }
+
+  // Strategy color palette
+  const stratColorPalette = ['#00ff88','#22d3ff','#b49bff','#ffaa00','#ffff88','#ff4466','#e879f9','#66d9ef'];
+  const stratColorMap = {};
+  let colorIdx = 0;
+
+  // Group by day, stack by strategy
+  const dayMap = {};  // day -> {strategy: total_pnl}
+  const allStrategies = new Set();
+  data.forEach(row => {
+    const day = row.day;
+    const strat = row.strategy || 'unknown';
+    if (!dayMap[day]) dayMap[day] = {};
+    dayMap[day][strat] = (dayMap[day][strat] || 0) + (row.total_pnl || 0);
+    allStrategies.add(strat);
+    if (!stratColorMap[strat]) {
+      stratColorMap[strat] = stratColorPalette[colorIdx % stratColorPalette.length];
+      colorIdx++;
+    }
+  });
+
+  // Build cumulative P&L by strategy over time
+  const days = Object.keys(dayMap).sort();
+  const strategies = Array.from(allStrategies);
+  const cumulative = {};  // strategy -> [cumPnl per day]
+  strategies.forEach(s => { cumulative[s] = []; });
+
+  let running = {};
+  strategies.forEach(s => { running[s] = 0; });
+  days.forEach(day => {
+    strategies.forEach(s => {
+      running[s] += (dayMap[day][s] || 0);
+      cumulative[s].push(running[s]);
+    });
+  });
+
+  // Find Y range
+  let yMin = 0, yMax = 0;
+  days.forEach((_, i) => {
+    let posSum = 0, negSum = 0;
+    strategies.forEach(s => {
+      const v = cumulative[s][i];
+      if (v >= 0) posSum += v; else negSum += v;
+    });
+    yMax = Math.max(yMax, posSum);
+    yMin = Math.min(yMin, negSum);
+  });
+  const yRange = (yMax - yMin) || 1;
+
+  const chartW = w - pad - 10;
+  const chartH = h - padTop - padBot;
+  const zeroY = padTop + (yMax / yRange) * chartH;
+
+  // Zero line
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(pad, zeroY); ctx.lineTo(w, zeroY); ctx.stroke();
+
+  // Draw stacked areas (cumulative line per strategy)
+  const barW = Math.max(2, chartW / days.length - 1);
+  days.forEach((day, i) => {
+    const x = pad + (i / (days.length - 1 || 1)) * chartW;
+    let posOffset = 0, negOffset = 0;
+    strategies.forEach(s => {
+      const v = cumulative[s][i];
+      const color = stratColorMap[s];
+      if (v >= 0) {
+        const barH = (v / yRange) * chartH;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.6;
+        ctx.fillRect(x - barW/2, zeroY - barH - posOffset, barW, Math.max(1, barH));
+        posOffset += barH;
+      } else {
+        const barH = (Math.abs(v) / yRange) * chartH;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.6;
+        ctx.fillRect(x - barW/2, zeroY + negOffset, barW, Math.max(1, barH));
+        negOffset += barH;
+      }
+    });
+  });
+  ctx.globalAlpha = 1;
+
+  // Y-axis labels
+  ctx.font = '9px JetBrains Mono';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  if (yMax > 0) ctx.fillText('+$' + Math.round(yMax).toLocaleString(), 0, padTop + 8);
+  if (yMin < 0) ctx.fillText('-$' + Math.round(Math.abs(yMin)).toLocaleString(), 0, h - padBot + 2);
+  ctx.fillText('$0', 0, zeroY + 3);
+
+  // Legend (bottom)
+  ctx.font = '8px JetBrains Mono';
+  let legendX = pad;
+  strategies.slice(0, 6).forEach(s => {
+    ctx.fillStyle = stratColorMap[s];
+    ctx.fillRect(legendX, h - 8, 8, 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    const label = s.length > 12 ? s.substring(0, 10) + '..' : s;
+    ctx.fillText(label, legendX + 11, h - 1);
+    legendX += ctx.measureText(label).width + 20;
+  });
 }
 
 function renderDailyPnl() {
@@ -1437,12 +1929,24 @@ function renderStrategyPerf(trades) {
     rsi_oversold: '#00ff88', bb_bounce: '#a78bfa', review_discovery: '#66d9ef', unknown: '#666',
   };
 
+  // Build contribution map from strategy_scores
+  const scoreMap = {};
+  (state.strategy_scores || []).forEach(s => { scoreMap[s.strategy] = s; });
+  const totalContrib = Object.values(scoreMap).reduce((sum, s) => sum + Math.abs((s.avg_pnl_pct || 0) * (s.trade_count || 0)), 0) || 1;
+
   $('stratPerf').innerHTML = sorted.length > 0 ? sorted.map(([name, v]) => {
     const color = stratColors[name] || '#666';
+    const score = scoreMap[name];
+    const contrib = score ? ((score.avg_pnl_pct || 0) * (score.trade_count || 0)) : 0;
+    const contribPct = ((Math.abs(contrib) / totalContrib) * 100).toFixed(0);
+    const contribColor = contrib >= 0 ? 'var(--green)' : 'var(--red)';
+    const winRate = score ? (score.win_rate * 100).toFixed(0) + '%' : '';
     return `<div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
         <span style="color:${color};font-size:12px;font-weight:500;">${name}</span>
         <div style="display:flex;gap:8px;">
+          ${winRate ? `<span style="color:var(--text-4);font-size:11px;">${winRate} win</span>` : ''}
+          <span style="color:${contribColor};font-size:11px;font-weight:500;">${contrib >= 0 ? '+' : ''}${contribPct}% contrib</span>
           <span style="color:var(--text-4);font-size:12px;">${v.count} trades</span>
           <span style="color:var(--text-2);font-size:12px;">$${v.notional.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
         </div>
@@ -1610,9 +2114,13 @@ function renderOptionsActivity(trades) {
     return;
   }
   // Summarize: total premium collected, open/closed count
+  // Options: notional = qty × price × 100 (each contract = 100 shares)
   let premiumCollected = 0, premiumPaid = 0;
   trades.forEach(t => {
-    const notional = Math.abs(t.notional || t.qty * t.price || 0);
+    const raw = Math.abs(t.notional || 0);
+    // If notional looks like it wasn't multiplied (< qty*price*50), apply 100x
+    const fallback = Math.abs((t.qty || 0) * (t.price || 0) * 100);
+    const notional = raw > 0 ? raw : fallback;
     if (t.side && t.side.toLowerCase().includes('sell')) premiumCollected += notional;
     else premiumPaid += notional;
   });
@@ -1879,12 +2387,21 @@ async function saveParams() {
 }
 
 function renderTradeLog(trades) {
-  // Filter and aggregate
   const real = trades.filter(t => t.qty > 0 && t.notional > 0);
-  // Aggregate same symbol+side+strategy within same minute
+
+  // Split into stock/crypto vs options
+  const stockTrades = real.filter(t => classifySymbol(t.symbol) !== 'option');
+  const optionTrades = real.filter(t => classifySymbol(t.symbol) === 'option');
+
+  _renderTradeTable(stockTrades, 'stockTradeBody', 'stockTradeMore', 12);
+  _renderTradeTable(optionTrades, 'optionTradeBody', 'optionTradeMore', 12, true);
+}
+
+function _renderTradeTable(trades, bodyId, moreId, limit, isOptions) {
+  // Aggregate same symbol+side+strategy
   const aggregated = [];
   const seen = {};
-  real.forEach(t => {
+  trades.forEach(t => {
     const key = `${t.symbol}_${t.side}_${t.strategy_tag || t.strategy || ''}`;
     if (!seen[key]) {
       seen[key] = { ...t, _count: 1 };
@@ -1896,18 +2413,29 @@ function renderTradeLog(trades) {
     }
   });
 
-  const body = $('tradeLogBody');
-  const show = aggregated.slice(0, 10);
+  const body = $(bodyId);
+  if (!body) return;
+  const show = aggregated.slice(0, limit);
+
+  if (show.length === 0) {
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-4);padding:18px 0;font-size:13px;">No ${isOptions ? 'options' : 'stock/crypto'} trades yet</td></tr>`;
+    if ($(moreId)) $(moreId).textContent = '';
+    return;
+  }
+
   body.innerHTML = show.map(t => {
-    const time = t.time ? (typeof t.time === 'number' 
+    const time = t.time ? (typeof t.time === 'number'
       ? new Date(t.time * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
       : new Date(t.time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
     ) : '—';
     const cls = classifySymbol(t.symbol);
     const countLabel = t._count > 1 ? ` ×${t._count}` : '';
+    // For options, shorten long contract symbols
+    let sym = t.symbol || '';
+    if (isOptions && sym.length > 15) sym = sym.substring(0, 4) + '..' + sym.substring(sym.length - 8);
     return `<tr>
       <td>${time}</td>
-      <td class="sym-${cls}" style="font-weight:600;">${t.symbol}</td>
+      <td class="sym-${cls}" style="font-weight:600;">${sym}</td>
       <td class="side-${(t.side || '').replace(/orderside\./i,'').toLowerCase()}">${(t.side || '').replace(/orderside\./i,'').toUpperCase()}</td>
       <td>${Number(t.qty).toFixed(t.qty >= 1 ? 0 : 4)}</td>
       <td>${fmt(t.price)}</td>
@@ -1917,12 +2445,10 @@ function renderTradeLog(trades) {
   }).join('');
 
   const hidden = aggregated.length - show.length;
-  const zeroCount = trades.length - real.length;
-  if (hidden > 0 || zeroCount > 0) {
-    const parts = [];
-    if (hidden > 0) parts.push(`+ ${hidden} more trades`);
-    if (zeroCount > 0) parts.push(`${zeroCount} $0 fills hidden`);
-    $('tradeLogMore').textContent = parts.join(' · ');
+  if (hidden > 0 && $(moreId)) {
+    $(moreId).textContent = `+ ${hidden} more trades`;
+  } else if ($(moreId)) {
+    $(moreId).textContent = '';
   }
 }
 
@@ -1933,11 +2459,11 @@ function renderOrgChart() {
   (state.agent_status || []).forEach(a => { agentMap[a.name] = a; });
 
   const agents = [
-    { key: 'ref_library', name: 'Research', color: 'var(--cyan)',
-      icon: '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="var(--cyan)" stroke-width="1.5" fill="none"/>',
+    { key: 'ref_library', name: 'Research', color: 'var(--red)',
+      icon: '<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="var(--red)" stroke-width="1.5" fill="none"/>',
       bullets: ['Fetch historical OHLCV bars', 'Cache news & corp actions', 'Refresh every 4 hours'] },
-    { key: 'signal_generator', name: 'Signals', color: 'var(--purple)',
-      icon: '<circle cx="12" cy="12" r="9" stroke="var(--purple)" stroke-width="1.5" fill="none"/><path d="M12 8v4l3 3" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" fill="none"/>',
+    { key: 'signal_generator', name: 'Signals', color: 'var(--cyan)',
+      icon: '<circle cx="12" cy="12" r="9" stroke="var(--cyan)" stroke-width="1.5" fill="none"/><path d="M12 8v4l3 3" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" fill="none"/>',
       bullets: ['RSI, MACD, Bollinger, EMA', 'IV regime & options signals', 'Sentiment scoring on news'] },
     { key: 'plan_manager', name: 'Strategy', color: 'var(--amber)',
       icon: '<rect x="3" y="3" width="18" height="18" rx="2" stroke="var(--amber)" stroke-width="1.5" fill="none"/><path d="M8 16l4-8 4 8" stroke="var(--amber)" stroke-width="1.5" fill="none"/>',
@@ -1978,24 +2504,54 @@ function renderOrgChart() {
 }
 
 function renderStreamHealth() {
-  // Placeholder stream data — can be wired to shared.py stream stats later
-  const streams = {
-    trade: { last_msg: 2, ok: true },
-    stock: { last_msg: 5, ok: true },
-    crypto: { last_msg: 8, ok: true },
-    options: { last_msg: null, ok: false, error: '405 err' },
-    news: { last_msg: 62, ok: true },
-  };
+  const sh = state.stream_health || {};
+  const names = ["trade", "stock", "crypto", "option", "news"];
+  const displayNames = { trade: "trade", stock: "stock", crypto: "crypto", option: "options", news: "news" };
+  const hasAny = Object.keys(sh).length > 0;
 
-  $('streamHealth').innerHTML = Object.entries(streams).map(([name, info]) => {
-    const ok = info.ok !== false;
-    const freshness = info.last_msg != null ? Math.max(0, 100 - info.last_msg) : 0;
-    const timeText = info.error || (info.last_msg != null ? `${info.last_msg}s ago` : '—');
+  $('streamHealth').innerHTML = names.map(name => {
+    const info = sh[name] || {};
+    const age = info.last_msg_age;
+    const connected = info.connected === true;
+    const reconnects = info.reconnects || 0;
+    const ok = connected && age != null && age < 300;
+    const stale = connected && age != null && age >= 300;
+    // For trade stream, use longer threshold (fills are infrequent)
+    const tradeOk = name === 'trade' && connected && age != null && age < 3600;
+    const freshness = (age != null && age < 300) ? Math.max(0, 100 - Math.round(age * 100 / 300)) : 0;
+
+    let timeText, dotClass, barColor, timeColor;
+    if (!hasAny) {
+      // No stream data from API at all
+      timeText = 'waiting...';
+      dotClass = 'dot-warn';
+      barColor = 'var(--amber)';
+      timeColor = 'var(--text-4)';
+    } else if (!connected) {
+      timeText = 'idle';
+      dotClass = 'dot-warn';
+      barColor = 'var(--amber)';
+      timeColor = 'var(--text-4)';
+    } else if (stale && !tradeOk) {
+      const mins = Math.round(age / 60);
+      timeText = mins > 0 ? `${mins}m ago` : `${Math.round(age)}s ago`;
+      dotClass = 'dot-warn';
+      barColor = 'var(--amber)';
+      timeColor = 'var(--amber)';
+    } else {
+      const secs = Math.round(age);
+      timeText = secs < 60 ? `${secs}s ago` : `${Math.round(secs/60)}m ago`;
+      dotClass = 'dot-ok';
+      barColor = 'var(--green)';
+      timeColor = 'var(--text-4)';
+    }
+    if (reconnects > 0) timeText += ` (${reconnects}x)`;
+
     return `<div class="stream-row">
-      <span class="status-dot ${ok ? (info.last_msg > 60 ? 'dot-warn' : 'dot-ok') : 'dot-warn'}"></span>
-      <span class="stream-name">${name}</span>
-      <div class="stream-bar"><div class="prog-track"><div class="prog-fill" style="width:${freshness}%;background:${ok ? 'var(--green)' : 'var(--amber)'};opacity:0.6;"></div></div></div>
-      <span class="stream-time" style="color:${ok ? 'var(--text-4)' : 'var(--amber)'};">${timeText}</span>
+      <span class="status-dot ${dotClass}"></span>
+      <span class="stream-name">${displayNames[name]}</span>
+      <div class="stream-bar"><div class="prog-track"><div class="prog-fill" style="width:${freshness}%;background:${barColor};opacity:0.6;"></div></div></div>
+      <span class="stream-time" style="color:${timeColor};">${timeText}</span>
     </div>`;
   }).join('');
 }

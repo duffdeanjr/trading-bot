@@ -296,6 +296,7 @@ def _evaluate_current_watchlist() -> list:
     return demotions
 
 
+@shared.register_agent("screener", phase=6, condition=lambda: settings.SCREENER_ENABLED)
 def run():
     """Main screener loop."""
     logger.info("screener: starting — waiting for ref_ready_event")

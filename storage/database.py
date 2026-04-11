@@ -2,6 +2,7 @@ import sqlite3
 import logging
 import threading
 import json
+import time
 import datetime
 from config import settings
 
@@ -157,7 +158,8 @@ def init_db():
                 pnl            REAL,
                 pnl_pct        REAL,
                 hold_duration_s INTEGER,
-                status         TEXT DEFAULT 'open'
+                status         TEXT DEFAULT 'open',
+                market_context TEXT
             );
 
             -- Strategy performance scores (rolling)
@@ -181,14 +183,98 @@ def init_db():
                 PRIMARY KEY (symbol, ts)
             );
 
+            -- Plan review outcomes (Loop 3 self-evaluation)
+            CREATE TABLE IF NOT EXISTS plan_review_outcomes (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          REAL,
+                action      TEXT,
+                symbol      TEXT,
+                value       TEXT,
+                reason      TEXT,
+                confidence  REAL,
+                was_applied INTEGER,
+                pnl_1h      REAL,
+                pnl_4h      REAL,
+                evaluated   INTEGER DEFAULT 0
+            );
+
+            -- Strategy factory recipes
+            CREATE TABLE IF NOT EXISTS strategy_recipes (
+                id                          TEXT PRIMARY KEY,
+                entry                       TEXT,
+                filter                      TEXT,
+                exit                        TEXT,
+                params                      TEXT,
+                status                      TEXT DEFAULT 'candidate',
+                hypothesis                  TEXT,
+                target_regime               TEXT,
+                backtest_sharpe             REAL,
+                backtest_win_rate           REAL,
+                shadow_start_ts             REAL,
+                shadow_sharpe               REAL,
+                shadow_days                 INTEGER DEFAULT 0,
+                consecutive_bad_evaluations INTEGER DEFAULT 0,
+                retired_reason              TEXT,
+                created_ts                  REAL,
+                last_updated_ts             REAL
+            );
+
+            -- Bandit state (LinUCB per-strategy A/b matrices)
+            CREATE TABLE IF NOT EXISTS bandit_state (
+                strategy_id TEXT PRIMARY KEY,
+                A_matrix    TEXT,
+                b_vector    TEXT,
+                alpha       REAL,
+                last_updated REAL
+            );
+
+            -- Bandit decisions (every multiplier computation, for reward harvesting)
+            CREATE TABLE IF NOT EXISTS bandit_decisions (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts                 REAL,
+                strategy_id        TEXT,
+                context_vector     TEXT,
+                multiplier_applied REAL,
+                shadow_mode        INTEGER,
+                reward_computed    REAL,
+                evaluated          INTEGER DEFAULT 0
+            );
+
+            -- Shadow signals for factory strategy evaluation
+            CREATE TABLE IF NOT EXISTS shadow_signals (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          REAL,
+                strategy_id TEXT,
+                symbol      TEXT,
+                side        TEXT,
+                conviction  REAL,
+                entry_price REAL,
+                exit_price  REAL,
+                pnl         REAL,
+                evaluated   INTEGER DEFAULT 0
+            );
+
             CREATE INDEX IF NOT EXISTS idx_bars_symbol ON historical_bars(symbol);
             CREATE INDEX IF NOT EXISTS idx_news_ts ON news(ts);
             CREATE INDEX IF NOT EXISTS idx_corp_actions_symbol ON corporate_actions(symbol);
             CREATE INDEX IF NOT EXISTS idx_outcomes_strategy ON outcomes(strategy);
             CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
             CREATE INDEX IF NOT EXISTS idx_screener_ts ON screener_scores(ts);
+            CREATE INDEX IF NOT EXISTS idx_review_outcomes_ts ON plan_review_outcomes(ts);
+            CREATE INDEX IF NOT EXISTS idx_shadow_signals_strategy ON shadow_signals(strategy_id);
+            CREATE INDEX IF NOT EXISTS idx_strategy_recipes_status ON strategy_recipes(status);
+            CREATE INDEX IF NOT EXISTS idx_bandit_decisions_eval ON bandit_decisions(evaluated, ts);
+            CREATE INDEX IF NOT EXISTS idx_bandit_decisions_strategy ON bandit_decisions(strategy_id);
         """)
         conn.commit()
+
+        # -- migrations for existing databases --
+        try:
+            conn.execute("ALTER TABLE outcomes ADD COLUMN market_context TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
     logger.info(f"database initialised: {settings.DB_PATH} (WAL mode)")
 
 # -- write helpers (all wrapped in try/except to prevent agent crashes) --
@@ -498,15 +584,16 @@ def read_option_chain_latest(underlying):
 
 # -- outcomes (trade entry/exit tracking for feedback loop) --
 
-def open_outcome(symbol, strategy, side, entry_price, entry_ts, qty):
-    """Record entry of a new trade."""
+def open_outcome(symbol, strategy, side, entry_price, entry_ts, qty, market_context=None):
+    """Record entry of a new trade.  market_context is an optional JSON string."""
     try:
         conn = get_connection()
         with _lock:
             conn.execute(
-                """INSERT INTO outcomes (symbol, strategy, side, entry_price, entry_ts, qty, status)
-                   VALUES (?,?,?,?,?,?,?)""",
-                (symbol, strategy, side, entry_price, entry_ts, qty, "open")
+                """INSERT INTO outcomes (symbol, strategy, side, entry_price, entry_ts, qty, status, market_context)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (symbol, strategy, side, entry_price, entry_ts, qty, "open",
+                 market_context)
             )
             conn.commit()
     except Exception as e:
@@ -632,6 +719,185 @@ def write_screener_score(symbol, ts, score, reasons="", promoted=False):
             conn.commit()
     except Exception as e:
         logger.error(f"database: write_screener_score failed: {e}")
+
+# -- plan review outcomes --
+
+def write_review_outcome(ts, action, symbol, value, reason, confidence, was_applied):
+    """Write a plan review suggestion (applied or skipped) for outcome tracking."""
+    try:
+        conn = get_connection()
+        with _lock:
+            conn.execute(
+                """INSERT INTO plan_review_outcomes
+                   (ts, action, symbol, value, reason, confidence, was_applied)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (ts, action, symbol, str(value) if value is not None else None,
+                 reason, confidence, 1 if was_applied else 0)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"database: write_review_outcome failed: {e}")
+
+def get_unevaluated_review_outcomes(older_than_ts):
+    """Return unevaluated review outcomes older than given timestamp."""
+    conn = get_connection()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM plan_review_outcomes WHERE evaluated=0 AND ts < ? ORDER BY ts",
+        (older_than_ts,)
+    ).fetchall()]
+
+def update_review_outcome_pnl(row_id, pnl_1h, pnl_4h):
+    """Fill in P&L for an evaluated review outcome."""
+    try:
+        conn = get_connection()
+        with _lock:
+            conn.execute(
+                "UPDATE plan_review_outcomes SET pnl_1h=?, pnl_4h=?, evaluated=1 WHERE id=?",
+                (pnl_1h, pnl_4h, row_id)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"database: update_review_outcome_pnl failed: {e}")
+
+def get_evaluated_review_outcomes(limit=20):
+    """Return recent evaluated review outcomes for self-modifying prompt."""
+    conn = get_connection()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM plan_review_outcomes WHERE evaluated=1 ORDER BY ts DESC LIMIT ?",
+        (limit,)
+    ).fetchall()]
+
+def get_review_outcome_pnl_by_action():
+    """Return average pnl_4h grouped by action type."""
+    conn = get_connection()
+    return [dict(r) for r in conn.execute(
+        """SELECT action, AVG(pnl_4h) as avg_pnl_4h, COUNT(*) as count
+           FROM plan_review_outcomes WHERE evaluated=1
+           GROUP BY action"""
+    ).fetchall()]
+
+# -- strategy recipes --
+
+def write_strategy_recipe(recipe_id, entry, filter_cond, exit_cond, params,
+                          hypothesis=None, target_regime=None,
+                          backtest_sharpe=None, backtest_win_rate=None):
+    """Insert a new strategy recipe as candidate."""
+    try:
+        conn = get_connection()
+        now = time.time()
+        with _lock:
+            conn.execute(
+                """INSERT OR IGNORE INTO strategy_recipes
+                   (id, entry, filter, exit, params, status, hypothesis, target_regime,
+                    backtest_sharpe, backtest_win_rate, created_ts, last_updated_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (recipe_id, entry, filter_cond, exit_cond,
+                 json.dumps(params) if params else "{}",
+                 "candidate", hypothesis, target_regime,
+                 backtest_sharpe, backtest_win_rate, now, now)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"database: write_strategy_recipe failed: {e}")
+
+def get_strategies_by_status(status):
+    """Return all strategy recipes with given status."""
+    conn = get_connection()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM strategy_recipes WHERE status=? ORDER BY last_updated_ts DESC",
+        (status,)
+    ).fetchall()]
+
+def update_strategy_status(recipe_id, status, **kwargs):
+    """Update a strategy recipe's status and optional fields."""
+    try:
+        conn = get_connection()
+        sets = ["status=?", "last_updated_ts=?"]
+        vals = [status, time.time()]
+        for k, v in kwargs.items():
+            sets.append(f"{k}=?")
+            vals.append(v)
+        vals.append(recipe_id)
+        with _lock:
+            conn.execute(
+                f"UPDATE strategy_recipes SET {', '.join(sets)} WHERE id=?", vals
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"database: update_strategy_status failed: {e}")
+
+def get_strategy_recipe(recipe_id):
+    """Return a single strategy recipe by ID."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM strategy_recipes WHERE id=?", (recipe_id,)).fetchone()
+    return dict(row) if row else None
+
+def get_all_strategy_recipe_ids():
+    """Return set of all strategy recipe IDs."""
+    conn = get_connection()
+    return {r["id"] for r in conn.execute("SELECT id FROM strategy_recipes").fetchall()}
+
+# -- shadow signals --
+
+def write_shadow_signal(ts, strategy_id, symbol, side, conviction, entry_price):
+    """Record a shadow signal for later evaluation."""
+    try:
+        conn = get_connection()
+        with _lock:
+            conn.execute(
+                """INSERT INTO shadow_signals
+                   (ts, strategy_id, symbol, side, conviction, entry_price)
+                   VALUES (?,?,?,?,?,?)""",
+                (ts, strategy_id, symbol, side, conviction, entry_price)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"database: write_shadow_signal failed: {e}")
+
+def get_unevaluated_shadow_signals(older_than_ts):
+    """Return unevaluated shadow signals older than given timestamp."""
+    conn = get_connection()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM shadow_signals WHERE evaluated=0 AND ts < ? ORDER BY ts",
+        (older_than_ts,)
+    ).fetchall()]
+
+def update_shadow_signal(signal_id, exit_price, pnl):
+    """Fill in exit price and P&L for evaluated shadow signal."""
+    try:
+        conn = get_connection()
+        with _lock:
+            conn.execute(
+                "UPDATE shadow_signals SET exit_price=?, pnl=?, evaluated=1 WHERE id=?",
+                (exit_price, pnl, signal_id)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"database: update_shadow_signal failed: {e}")
+
+def get_shadow_signal_stats(strategy_id):
+    """Return aggregated stats for a strategy's evaluated shadow signals."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT COUNT(*) as count,
+                  SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                  AVG(pnl) as avg_pnl
+           FROM shadow_signals WHERE strategy_id=? AND evaluated=1""",
+        (strategy_id,)
+    ).fetchone()
+    if not rows or rows["count"] == 0:
+        return None
+    count = rows["count"]
+    wins = rows["wins"] or 0
+    avg_pnl = rows["avg_pnl"] or 0
+    returns = [dict(r)["pnl"] for r in conn.execute(
+        "SELECT pnl FROM shadow_signals WHERE strategy_id=? AND evaluated=1",
+        (strategy_id,)
+    ).fetchall()]
+    import math
+    std = math.sqrt(sum((r - avg_pnl)**2 for r in returns) / len(returns)) if returns else 0
+    sharpe = avg_pnl / std if std > 0 else 0
+    return {"count": count, "win_rate": wins / count, "avg_pnl": avg_pnl, "sharpe": sharpe}
 
 # -- retention cleanup --
 

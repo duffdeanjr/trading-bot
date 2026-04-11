@@ -23,7 +23,8 @@ from alpaca_local import client as alpaca, stream as alpaca_stream
 from agents import (
     boss, signal_generator, risk_manager,
     order_execution, account_agent, ref_library, diagnostics,
-    plan_manager, screener, backtester, plan_reviewer,
+    plan_manager, screener, backtester, plan_reviewer, strategy_factory,
+    bandit,
 )
 
 # ?? logging setup ?????????????????????????????????????????????
@@ -119,48 +120,49 @@ def main():
         shared.watchlist = initial_wl
     logger.info(f"step 3b: initial watchlist -> {len(initial_wl)} symbols")
 
-    # ?? step 4: ref library ? wait for ref_ready_event ????????
-    t_ref = _start_thread(ref_library.run, "ref_library")
-    _all_threads.append(t_ref)
-    logger.info("step 4: ref_library started ? waiting for ref_ready_event")
+    # ?? steps 4-7: launch agents from registry by phase ????????
+    def _launch_phase(phase: int):
+        """Launch all registered agents for a given startup phase."""
+        registry = shared.get_registered_agents()
+        launched = []
+        for name in sorted(registry):
+            info = registry[name]
+            if info["phase"] != phase:
+                continue
+            cond = info.get("condition")
+            if cond and not cond():
+                logger.info(f"  skipping {name} (condition not met)")
+                continue
+            t = _start_thread(info["fn"], name)
+            _all_threads.append(t)
+            launched.append(name)
+        return launched
+
+    # Phase 4: ref_library ? wait for ref_ready_event
+    launched = _launch_phase(4)
+    logger.info(f"step 4: {', '.join(launched)} started ? waiting for ref_ready_event")
     shared.ref_ready_event.wait(timeout=120)
     if shared.ref_load_error:
         logger.warning("step 4: ref_library completed with partial errors ? continuing")
     else:
         logger.info("step 4: ref_ready_event received")
 
-    # ?? step 5: stream callbacks registered ? stream_ready_event
-    # Register fill callbacks before starting streams
-    # (order_exec and account_agent register their own callbacks in their run() methods,
-    #  but stream.start() must be called here before those threads launch)
+    # Step 5: streams (not an agent ? stays manual)
     logger.info("step 5: starting streams")
     alpaca_stream.start()
     shared.stream_ready_event.wait(timeout=30)
     logger.info("step 5: stream_ready_event received ? all 5 streams live")
 
-    # -- step 6: independents - wait for account_ready_event ----
-    t_acct = _start_thread(account_agent.run,    "account_agent")
-    t_diag = _start_thread(diagnostics.run,      "diagnostics")
-    t_sig  = _start_thread(signal_generator.run, "signal_generator")
-    t_plan = _start_thread(plan_manager.run,     "plan_manager")
-    _all_threads.extend([t_acct, t_diag, t_sig, t_plan])
-    if settings.SCREENER_ENABLED:
-        t_scr = _start_thread(screener.run, "screener")
-        _all_threads.append(t_scr)
-
-    logger.info("step 6: account_agent / diagnostics / signal_generator / plan_manager / screener started")
+    # Phase 6: account_agent, diagnostics, signal_generator, plan_manager, screener
+    launched = _launch_phase(6)
+    logger.info(f"step 6: {', '.join(launched)} started")
     logger.info("step 6: waiting for account_ready_event")
     shared.account_ready_event.wait(timeout=30)
     logger.info("step 6: account_ready_event received - positions populated")
 
-    # ?? step 7: boss + managed agents ?????????????????????????
-    t_boss = _start_thread(boss.run,            "boss")
-    t_risk = _start_thread(risk_manager.run,    "risk_manager")
-    t_exec = _start_thread(order_execution.run, "order_execution")
-    t_wf   = _start_thread(backtester.walk_forward_loop, "walk_forward")
-    t_rev  = _start_thread(plan_reviewer.run,   "plan_reviewer")
-    _all_threads.extend([t_boss, t_risk, t_exec, t_wf, t_rev])
-    logger.info("step 7: boss / risk_manager / order_execution / walk_forward / plan_reviewer started")
+    # Phase 7: boss, risk_manager, order_execution, walk_forward, etc.
+    launched = _launch_phase(7)
+    logger.info(f"step 7: {', '.join(launched)} started")
     logger.info("all agents running - bot is live")
 
     # ?? main thread: wait for shutdown ????????????????????????

@@ -118,6 +118,7 @@ def _merge_screener(symbols: list) -> list:
     return symbols
 
 
+@shared.register_agent("boss", phase=7)
 def run():
     logger.info("boss: starting")
     last_open_state = None
@@ -128,6 +129,7 @@ def run():
     _resolve_watchlist()
 
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("boss")
         _check_clock()
 
         # Re-resolve watchlist on market open transition

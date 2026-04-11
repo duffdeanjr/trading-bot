@@ -24,8 +24,8 @@ BASE_URL = (
 
 # ── timing ────────────────────────────────────────────────────
 TICK_INTERVAL   = 5     # seconds — all agent loop sleeps align to this
-OVERNIGHT_SLEEP = 60    # seconds — sleep when market is closed
-CANCEL_TIMEOUT  = 5     # seconds — graceful shutdown cancel-all deadline
+OVERNIGHT_SLEEP = 300   # seconds — sleep when market is closed (5 min)
+CANCEL_TIMEOUT  = 10    # seconds — graceful shutdown cancel-all deadline
 
 # ── market data (decision: Basic = IEX feed) ──────────────────
 DATA_FEED = "iex"       # "iex" (free) | "sip" (Algo Trader Plus, $99/mo)
@@ -33,19 +33,10 @@ DATA_FEED = "iex"       # "iex" (free) | "sip" (Algo Trader Plus, $99/mo)
 # ── database (decision: SQLite) ───────────────────────────────
 DB_PATH = "trading.db"  # swap to postgres:// URI to migrate later
 
-# ── watchlist ─────────────────────────────────────────────────
-WATCHLIST        = [s.strip() for s in os.getenv("WATCHLIST", "AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,SPY,QQQ,IWM").split(",") if s.strip()]
-WATCHLIST_ALPACA = os.getenv("WATCHLIST_ALPACA", "")  # Alpaca watchlist name to fetch
-CRYPTO_WATCHLIST = [s.strip() for s in os.getenv("CRYPTO_WATCHLIST", "BTC/USD,ETH/USD").split(",") if s.strip()]
-
-# ── dry run ───────────────────────────────────────────────────
-DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
-
-# ── streams ──────────────────────────────────────────────────
-STREAMS_MINIMAL = os.getenv("STREAMS_MINIMAL", "false").lower() in ("true", "1", "yes")
-
-# ── retention ─────────────────────────────────────────────────
-RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "90"))
+# ── downloads ─────────────────────────────────────────────────
+# Single folder for all data files fetched by ref_library.
+# Subfolders: historical_bars/ | news/ | options/ | corporate_actions/
+DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downloads")
 
 # ── options (decision: Level 3) ───────────────────────────────
 OPTIONS_LEVEL    = 3     # 1 | 2 | 3 — must match Alpaca account approval
@@ -55,61 +46,14 @@ EXPIRY_WARN_DAYS = 2     # flag short options this many days before expiry
 # ── execution (decision: no VWAP/TWAP) ───────────────────────
 VWAP_TWAP = False        # requires Alpaca Elite Smart Router ($30k deposit)
 
-# ── risk limits ───────────────────────────────────────────────
-MAX_POSITION_SIZE   = float(os.getenv("MAX_POSITION_SIZE", "10000"))
-MAX_PORTFOLIO_PCT   = float(os.getenv("MAX_PORTFOLIO_PCT", "0.10"))  # 10% max per position (options-focused)
-MARGIN_MIN_EQUITY   = float(os.getenv("MARGIN_MIN_EQUITY", "2000"))
-
-# ── circuit breaker ───────────────────────────────────────────
-MAX_DAILY_LOSS_PCT      = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.05"))
-MAX_CONSECUTIVE_LOSSES  = int(os.getenv("MAX_CONSECUTIVE_LOSSES", "5"))
-
-# ── signal thresholds ────────────────────────────────────────
-RSI_OVERSOLD    = float(os.getenv("RSI_OVERSOLD", "35"))
-RSI_OVERBOUGHT  = float(os.getenv("RSI_OVERBOUGHT", "70"))
-RISK_FREE_RATE  = float(os.getenv("RISK_FREE_RATE", "0.05"))
-
-# ── portfolio heat / VIX ─────────────────────────────────────
-VIX_NORMAL  = float(os.getenv("VIX_NORMAL", "20"))
-VIX_CAUTION = float(os.getenv("VIX_CAUTION", "25"))
-VIX_HIGH    = float(os.getenv("VIX_HIGH", "35"))
-VIX_EXTREME = float(os.getenv("VIX_EXTREME", "45"))
-HEAT_MAX    = float(os.getenv("HEAT_MAX", "0.70"))   # keep 30% free for options
-HEAT_WARN   = float(os.getenv("HEAT_WARN", "0.60"))
-
-# ── market regime strategy map ────────────────────────────────
-# Maps each detected regime to the list of strategy tags that are active.
-# Signal generator will skip strategies not in the active list.
-REGIME_STRATEGY_MAP = {
-    "trending-bull":  ["rsi_oversold", "macd_cross", "bb_bounce", "crypto_momentum",
-                       "covered_call", "cash_secured_put", "review_discovery"],
-    "trending-bear":  ["rsi_overbought", "iron_condor", "cash_secured_put", "crypto_momentum"],
-    "ranging":        ["bb_bounce", "iron_condor", "covered_call", "cash_secured_put",
-                       "calendar_spread", "rsi_oversold", "rsi_overbought"],
-    "high-vol":       ["iron_condor", "rsi_overbought", "cash_secured_put"],
-}
-
-# ── dashboard ────────────────────────────────────────────────
-DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5050"))
-
-# ── rebalancing ──────────────────────────────────────────────
-REBALANCE_THRESHOLD = 0.01  # only rebalance when allocation gap > 1%
-
-# ── screener ─────────────────────────────────────────────────
-SCREENER_ENABLED          = os.getenv("SCREENER_ENABLED", "true").lower() in ("true", "1", "yes")
-SCREENER_INTERVAL         = int(os.getenv("SCREENER_INTERVAL", "900"))      # seconds between scan cycles
-SCREENER_BATCH_SIZE       = int(os.getenv("SCREENER_BATCH_SIZE", "15"))     # symbols per API call
-SCREENER_BATCHES_PER_CYCLE = int(os.getenv("SCREENER_BATCHES_PER_CYCLE", "4"))
-SCREENER_PROMOTE_THRESHOLD = float(os.getenv("SCREENER_PROMOTE_THRESHOLD", "0.40"))
-SCREENER_DEMOTE_THRESHOLD  = float(os.getenv("SCREENER_DEMOTE_THRESHOLD", "0.20"))
-MAX_WATCHLIST_SIZE        = int(os.getenv("MAX_WATCHLIST_SIZE", "40"))
-SCREENER_MIN_TENURE_S     = int(os.getenv("SCREENER_MIN_TENURE_S", "1800")) # 30 min before demotion
-SCREENER_HISTORY_DAYS     = int(os.getenv("SCREENER_HISTORY_DAYS", "30"))
+# ── risk limits (NEW from diagnostic) ────────────────────────
+MAX_POSITION_SIZE = 5000  # max notional per single order in USD
+MAX_PORTFOLIO_PCT = 0.10  # max % of portfolio in any one symbol (10%)
 
 # ── resilience ────────────────────────────────────────────────
 MAX_RETRIES       = 3    # order exec retry attempts on transient errors
 BACKOFF_BASE      = 2    # exponential backoff multiplier (seconds)
-REF_REFRESH_HOURS = 4    # how often ref library refreshes static caches
+REF_REFRESH_HOURS = 24   # how often ref library refreshes static caches
 
 # ── logging ───────────────────────────────────────────────────
 LOG_LEVEL = logging.INFO  # DEBUG | INFO | WARNING | ERROR
@@ -119,10 +63,54 @@ assert OPTIONS_LEVEL in (1, 2, 3),      "OPTIONS_LEVEL must be 1, 2, or 3"
 assert DATA_FEED    in ("iex", "sip"),  "DATA_FEED must be 'iex' or 'sip'"
 assert 0 < MAX_PORTFOLIO_PCT <= 1.0,    "MAX_PORTFOLIO_PCT must be between 0 and 1"
 assert MAX_POSITION_SIZE > 0,           "MAX_POSITION_SIZE must be positive"
-assert 0 < REBALANCE_THRESHOLD < 1.0,  "REBALANCE_THRESHOLD must be between 0 and 1"
 
 if VWAP_TWAP:
     raise EnvironmentError(
         "VWAP_TWAP=True requires Alpaca Elite Smart Router ($30k deposit). "
         "Set VWAP_TWAP=False or enrol at alpaca.markets/elite"
     )
+
+# ── dry run ───────────────────────────────────────────────────
+# When True, orders are logged but never submitted to Alpaca
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
+
+# ── dashboard ─────────────────────────────────────────────────
+DASHBOARD_PORT = 5050
+
+# ── risk limits (extended) ────────────────────────────────────
+MARGIN_MIN_EQUITY    = 25000   # minimum equity to use margin (PDT rule)
+MAX_DAILY_LOSS_PCT   = 0.05    # circuit breaker: halt if down 5% in a day
+MAX_CONSECUTIVE_LOSSES = 5     # circuit breaker: halt after N straight losses
+
+# ── signal thresholds ────────────────────────────────────────
+RSI_OVERSOLD  = 30.0
+RSI_OVERBOUGHT = 70.0
+REBALANCE_THRESHOLD = 0.03     # 3% gap triggers rebalance
+
+# ── VIX regime thresholds ────────────────────────────────────
+VIX_CAUTION = 20.0             # reduce position sizing
+VIX_HIGH    = 30.0             # defensive posture
+VIX_EXTREME = 40.0             # halt new positions
+
+# ── portfolio heat ────────────────────────────────────────────
+HEAT_WARN = 0.80               # warn at 80% of max heat
+HEAT_MAX  = 1.00               # max heat = 100% deployed
+
+# ── screener ─────────────────────────────────────────────────
+SCREENER_ENABLED           = True
+SCREENER_INTERVAL          = 3600   # seconds between screener runs
+MAX_WATCHLIST_SIZE         = 50
+SCREENER_PROMOTE_THRESHOLD = 0.65   # score to promote to watchlist
+SCREENER_DEMOTE_THRESHOLD  = 0.35   # score to drop from watchlist
+SCREENER_BATCH_SIZE        = 100    # symbols per batch when scanning universe
+SCREENER_BATCHES_PER_CYCLE = 5      # batches per screener cycle
+
+# ── data retention ───────────────────────────────────────────
+RETENTION_DAYS = 90                 # purge data older than this from DB
+
+# ── watchlist ────────────────────────────────────────────────
+_wl_str = os.getenv("WATCHLIST", "AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,SPY,QQQ,IWM")
+WATCHLIST = [s.strip() for s in _wl_str.split(",") if s.strip()]
+_crypto_str = os.getenv("CRYPTO_WATCHLIST", "BTC/USD,ETH/USD")
+CRYPTO_WATCHLIST = [s.strip() for s in _crypto_str.split(",") if s.strip()]
+WATCHLIST_ALPACA = os.getenv("WATCHLIST_ALPACA", "")  # optional Alpaca watchlist name

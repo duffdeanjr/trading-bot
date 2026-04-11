@@ -285,6 +285,7 @@ def _full_load():
     database.purge_old_data(days=settings.RETENTION_DAYS)
     logger.info("ref_library: full cache load complete")
 
+@shared.register_agent("ref_library", phase=4)
 def run():
     logger.info("ref_library: starting")
     try:
@@ -301,6 +302,7 @@ def run():
     _NEWS_INTERVAL = 900  # refresh news every 15 min
 
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("ref_library")
         _process_dirty_symbols()
 
         now = time.time()
