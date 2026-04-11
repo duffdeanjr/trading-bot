@@ -1,9 +1,14 @@
 """
-agents/sentiment.py -- Real NLP sentiment scoring using a keyword-weighted
-approach with context awareness. Replaces the simple keyword counter in
-signal_generator.py.
+agents/sentiment.py -- Sentiment scoring using ProsusAI/finbert (HuggingFace).
 
-Replace score_text() with a FinBERT call when you have GPU/API access.
+Loads the FinBERT model once at module import. If the model fails to load
+(missing dependencies, no disk space, etc.), falls back gracefully to the
+legacy keyword-weighted scorer.
+
+Public API (unchanged):
+    score_text(text) -> float          # [-1, 1]
+    score_headline(headline, summary)  # [-1, 1]
+    score_news_events(events)          # [-1, 1]
 """
 
 import re
@@ -11,7 +16,51 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Weighted financial lexicon (positive terms)
+# ---------------------------------------------------------------------------
+# FinBERT model (loaded once at startup)
+# ---------------------------------------------------------------------------
+_finbert_pipeline = None
+_USE_FINBERT = False
+
+try:
+    from transformers import pipeline as hf_pipeline
+    logger.info("sentiment: loading ProsusAI/finbert model (one-time)...")
+    _finbert_pipeline = hf_pipeline(
+        "sentiment-analysis",
+        model="ProsusAI/finbert",
+        tokenizer="ProsusAI/finbert",
+        truncation=True,
+        max_length=512,
+    )
+    _USE_FINBERT = True
+    logger.info("sentiment: FinBERT model loaded successfully")
+except Exception as exc:
+    logger.warning(f"sentiment: FinBERT unavailable, falling back to keyword scoring: {exc}")
+    _finbert_pipeline = None
+    _USE_FINBERT = False
+
+# ---------------------------------------------------------------------------
+# FinBERT scorer
+# ---------------------------------------------------------------------------
+_LABEL_MAP = {"positive": 1.0, "negative": -1.0, "neutral": 0.0}
+
+
+def _finbert_score(text: str) -> float:
+    """Score text using FinBERT. Returns float in [-1, 1]."""
+    if not text or not _finbert_pipeline:
+        return 0.0
+    try:
+        result = _finbert_pipeline(text[:512])[0]
+        label = result["label"].lower()
+        score = result["score"]
+        return _LABEL_MAP.get(label, 0.0) * score
+    except Exception as exc:
+        logger.debug(f"sentiment: FinBERT inference error: {exc}")
+        return _keyword_score(text)
+
+# ---------------------------------------------------------------------------
+# Legacy keyword-weighted scorer (fallback)
+# ---------------------------------------------------------------------------
 _POSITIVE = {
     "beat": 2.0, "beats": 2.0, "exceed": 1.5, "exceeds": 1.5, "exceeded": 1.5,
     "record": 1.5, "surge": 1.5, "surges": 1.5, "rally": 1.0, "rallies": 1.0,
@@ -24,7 +73,6 @@ _POSITIVE = {
     "breakthrough": 2.0, "innovative": 0.5, "expansion": 0.5,
 }
 
-# Weighted financial lexicon (negative terms)
 _NEGATIVE = {
     "miss": 2.0, "misses": 2.0, "missed": 2.0, "disappoint": 1.5,
     "drop": 1.0, "drops": 1.0, "fell": 1.0, "fall": 1.0, "falls": 1.0,
@@ -38,19 +86,14 @@ _NEGATIVE = {
     "concern": 0.5, "risk": 0.5, "uncertainty": 0.5, "volatile": 0.5,
 }
 
-# Negation words that flip sentiment
 _NEGATORS = {"not", "no", "never", "neither", "nor", "without", "lack", "fail", "failed"}
 
-# Intensifiers
 _INTENSIFIERS = {"very", "extremely", "significantly", "substantially", "sharply",
                  "dramatically", "unexpectedly", "surprisingly"}
 
 
-def score_text(text: str) -> float:
-    """
-    Score text sentiment. Returns float in [-1.0, +1.0].
-    Positive = bullish, negative = bearish, 0 = neutral.
-    """
+def _keyword_score(text: str) -> float:
+    """Legacy keyword-weighted sentiment. Returns float in [-1.0, +1.0]."""
     if not text:
         return 0.0
 
@@ -61,11 +104,8 @@ def score_text(text: str) -> float:
     neg_score = 0.0
 
     for i, word in enumerate(words):
-        # Check for negation in preceding 3 words
         context = words[max(0, i-3):i]
         negated = any(n in context for n in _NEGATORS)
-
-        # Check for intensifier
         intensity = 1.5 if any(w in context for w in _INTENSIFIERS) else 1.0
 
         if word in _POSITIVE:
@@ -87,8 +127,21 @@ def score_text(text: str) -> float:
         return 0.0
 
     raw = (pos_score - neg_score) / total
-    # Normalize to [-1, 1]
     return max(-1.0, min(1.0, raw))
+
+# ---------------------------------------------------------------------------
+# Public API (unchanged interface)
+# ---------------------------------------------------------------------------
+
+def score_text(text: str) -> float:
+    """
+    Score text sentiment. Returns float in [-1.0, +1.0].
+    Positive = bullish, negative = bearish, 0 = neutral.
+    Uses FinBERT if available, otherwise keyword scoring.
+    """
+    if _USE_FINBERT:
+        return _finbert_score(text)
+    return _keyword_score(text)
 
 
 def score_headline(headline: str, summary: str = "") -> float:

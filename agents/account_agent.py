@@ -1,4 +1,5 @@
 import time
+import json
 import logging
 import datetime
 import shared
@@ -10,9 +11,7 @@ logger = logging.getLogger(__name__)
 
 def _extract_strategy_tag(client_order_id):
     """Extract strategy tag from client_order_id format 'strategy_tag::timestamp'."""
-    if client_order_id and "::" in str(client_order_id):
-        return str(client_order_id).split("::")[0]
-    return "unknown"
+    return shared.extract_strategy_tag(client_order_id)
 
 def _on_fill(event):
     """
@@ -30,9 +29,12 @@ def _on_fill(event):
         now_iso  = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         # Immediate DB write
+        # Options contracts control 100 shares — multiply notional accordingly
+        is_option = len(symbol) > 10 or getattr(order, 'asset_class', '') in ('us_option', 'option')
+        multiplier = 100 if is_option else 1
         database.write_trade(
             ts=time.time(), symbol=symbol, side=side,
-            qty=qty, price=price, notional=qty * price,
+            qty=qty, price=price, notional=qty * price * multiplier,
             order_type=str(order.order_type),
             client_order_id=order.client_order_id,
             strategy_tag=strategy,
@@ -46,15 +48,66 @@ def _on_fill(event):
                 existing_qty = float(getattr(pos, "qty", 0) or
                                      (pos.get("qty", 0) if isinstance(pos, dict) else 0))
 
+        # Build market context snapshot for outcome instrumentation
+        ctx = None
+        if side in ("buy", "sell") and (existing_qty <= 0 if side == "buy" else existing_qty <= qty or existing_qty <= 0):
+            try:
+                with shared.cache_lock:
+                    regime = getattr(shared, "market_regime", "unknown")
+                    plan = getattr(shared, "investment_plan", {}) or {}
+                    plan_sym = plan.get("symbols", {}).get(symbol, {})
+
+                # VIX level
+                try:
+                    from agents import risk_manager as _rm
+                    vix_level = _rm.get_last_vix()
+                except Exception:
+                    vix_level = 18.0
+
+                # SPY 20-day momentum
+                with shared.cache_lock:
+                    spy_data = shared.historical_ohlcv.get("SPY", {})
+                spy_closes = spy_data.get("closes", [])
+                if len(spy_closes) >= 20 and spy_closes[-20] > 0:
+                    spy_momentum = round((spy_closes[-1] - spy_closes[-20]) / spy_closes[-20], 4)
+                else:
+                    spy_momentum = 0.0
+
+                # Signal mix: recent signals for this symbol
+                signal_mix = {}
+                try:
+                    recent = database.get_connection().execute(
+                        "SELECT strategy, confidence FROM signals WHERE symbol=? ORDER BY ts DESC LIMIT 5",
+                        (symbol,)
+                    ).fetchall()
+                    for r in recent:
+                        signal_mix[r["strategy"]] = round(r["confidence"] or 0, 3)
+                except Exception:
+                    pass
+
+                ctx = json.dumps({
+                    "regime": regime,
+                    "vix_level": round(vix_level, 1),
+                    "spy_momentum_20d": spy_momentum,
+                    "signal_mix": signal_mix,
+                    "kelly_weight": round(plan_sym.get("target_pct", 0), 4),
+                    "correlation_discount_applied": bool(plan_sym.get("correlation_discount_applied", False)),
+                })
+            except Exception as e:
+                logger.debug(f"account_agent: market_context build error: {e}")
+                ctx = None
+
         if side == "buy" and existing_qty <= 0:
             # New long entry
-            database.open_outcome(symbol, strategy, "buy", price, now_iso, qty)
+            database.open_outcome(symbol, strategy, "buy", price, now_iso, qty,
+                                  market_context=ctx)
         elif side == "sell" and existing_qty <= qty:
             # Closing a long position (full or partial exit)
             database.close_outcome(symbol, strategy, price, now_iso)
         elif side == "sell" and existing_qty <= 0:
             # New short entry
-            database.open_outcome(symbol, strategy, "sell", price, now_iso, qty)
+            database.open_outcome(symbol, strategy, "sell", price, now_iso, qty,
+                                  market_context=ctx)
         elif side == "buy" and existing_qty < 0:
             # Closing a short position
             database.close_outcome(symbol, strategy, price, now_iso)
@@ -140,6 +193,7 @@ def _has_open_crypto_positions() -> bool:
                 return True
     return False
 
+@shared.register_agent("account_agent", phase=6)
 def run():
     logger.info("account_agent: starting")
 
@@ -154,6 +208,7 @@ def run():
     logger.info("account_agent: account_ready_event set")
 
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("account_agent")
         _poll_account()
         _poll_positions()
         _poll_portfolio_history()

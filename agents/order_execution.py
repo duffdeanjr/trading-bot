@@ -33,8 +33,9 @@ def _is_pending(symbol, side, strategy_tag) -> bool:
 def on_fill(event):
     """
     Called by stream.py when a fill event arrives on TradingStream.
-    Writes fill to DB immediately (diagnostic fix ? before shared.py update,
-    so a crash between fill and next poll doesn't lose the trade).
+    Only manages the pending-orders set here. DB writes, positions updates,
+    and outcome tracking are handled by account_agent._on_fill to avoid
+    duplicate writes.
     """
     try:
         order = event.order
@@ -42,31 +43,11 @@ def on_fill(event):
         side         = str(order.side)
         qty          = float(order.filled_qty or 0)
         price        = float(order.filled_avg_price or 0)
-        notional     = qty * price
         coid         = order.client_order_id
-        strategy_tag = coid.split("::")[0] if coid and "::" in coid else coid
+        strategy_tag = shared.extract_strategy_tag(coid)
 
-        # 1. Write to DB immediately (diagnostic fix)
-        database.write_trade(
-            ts=time.time(), symbol=symbol, side=side,
-            qty=qty, price=price, notional=notional,
-            order_type=str(order.order_type),
-            order_class=str(order.order_class) if order.order_class else None,
-            client_order_id=coid,
-            strategy_tag=strategy_tag,
-        )
-
-        # 2. Remove from pending set
+        # Remove from pending set so new orders for this symbol can flow
         _remove_pending(symbol, side, strategy_tag)
-
-        # 3. Update shared positions (optimistic, account agent will confirm on next poll)
-        with shared.positions_lock:
-            pos = shared.positions.get(symbol, {})
-            existing_qty = float(pos.get("qty", 0)) if isinstance(pos, dict) else 0
-            if side == "buy":
-                shared.positions[symbol] = {"qty": existing_qty + qty, "avg_price": price}
-            else:
-                shared.positions[symbol] = {"qty": max(0, existing_qty - qty), "avg_price": price}
 
         logger.info(f"fill: {side} {qty} {symbol} @ {price:.4f}")
 
@@ -121,8 +102,9 @@ def place_order(signal: dict):
         return
     _add_pending(symbol, side, strategy_tag)
 
-    # Build client_order_id: "strategy_tag::timestamp"
-    coid = f"{strategy_tag}::{int(time.time())}"
+    # Build client_order_id: "strategy_tag::timestamp::random" (unique per order)
+    import random
+    coid = f"{strategy_tag}::{int(time.time())}::{random.randint(1000,9999)}"
 
     # Build order request
     try:
@@ -176,7 +158,7 @@ def _load_open_orders():
         orders = alpaca.get_open_orders()
         for o in orders:
             coid = o.client_order_id or ""
-            tag  = coid.split("::")[0] if "::" in coid else "default"
+            tag  = shared.extract_strategy_tag(coid) or "default"
             _add_pending(o.symbol, str(o.side), tag)
         logger.info(f"order_exec: pre-populated {len(orders)} open orders into pending set")
     except Exception as e:
@@ -214,6 +196,7 @@ def _cancel_all_on_shutdown():
             )
 
 # -- main loop ----------------------------------------------------------------
+@shared.register_agent("order_execution", phase=7)
 def run():
     logger.info("order_exec: starting")
 
@@ -221,6 +204,7 @@ def run():
     _load_open_orders()
 
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("order_execution")
         try:
             if shared.MARKET_OPEN and not shared.RATE_LIMITED:
                 _execute_toward_targets()
@@ -254,12 +238,10 @@ def _execute_toward_targets():
     if not targets:
         return
 
-    with shared.account_lock:
-        acct = shared.account
-    with shared.positions_lock:
-        positions = dict(shared.positions)
+    acct = shared.get_account_snapshot()
+    positions = shared.get_positions_snapshot()
 
-    if acct is None:
+    if acct is None or (isinstance(acct, dict) and not acct):
         return
 
     try:
@@ -279,6 +261,10 @@ def _execute_toward_targets():
         except Exception:
             current_alloc[sym] = 0.0
 
+    # Track cumulative buys this cycle to avoid blowing through heat limit
+    buy_budget = max(0, (settings.HEAT_MAX - sum(current_alloc.values())) * equity)
+    bought_this_cycle = 0.0
+
     for symbol, target_pct in targets.items():
         current_pct = current_alloc.get(symbol, 0.0)
         gap = target_pct - current_pct
@@ -286,14 +272,23 @@ def _execute_toward_targets():
         if abs(gap) < settings.REBALANCE_THRESHOLD:
             continue
 
+        side = "buy" if gap > 0 else "sell"
+
+        # Cap buys to remaining heat budget
+        if side == "buy" and bought_this_cycle >= buy_budget:
+            logger.debug(f"order_exec: skipping {symbol} buy — heat budget exhausted "
+                         f"(${bought_this_cycle:,.0f} / ${buy_budget:,.0f})")
+            continue
+
         # Compute notional to trade
         notional = abs(gap) * equity * size_mult
         notional = min(notional, settings.MAX_POSITION_SIZE)
 
+        if side == "buy":
+            notional = min(notional, buy_budget - bought_this_cycle)
+
         if notional < 1.0:
             continue
-
-        side = "buy" if gap > 0 else "sell"
 
         # Check not already pending
         if _is_pending(symbol, side, "target_rebalance"):
@@ -307,5 +302,9 @@ def _execute_toward_targets():
         }
 
         logger.info(f"order_exec: rebalance {side} {symbol} "
-                    f"gap={gap:+.1%} notional=${notional:.0f}")
+                    f"gap={gap:+.1%} notional=${notional:.0f}"
+                    f"{f' (budget ${buy_budget-bought_this_cycle:,.0f} left)' if side=='buy' else ''}")
         place_order(signal)
+
+        if side == "buy":
+            bought_this_cycle += notional

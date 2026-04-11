@@ -63,7 +63,7 @@ def _iter_barset(bars):
 def _is_crypto(symbol: str) -> bool:
     return "/" in symbol
 
-def _fetch_historical(symbols: list, limit=30):
+def _fetch_historical(symbols: list, limit=60):
     """Fetch OHLCV bars for equity symbols and write to database."""
     equity_syms = [s for s in symbols if not _is_crypto(s)]
     crypto_syms = [s for s in symbols if _is_crypto(s)]
@@ -72,7 +72,7 @@ def _fetch_historical(symbols: list, limit=30):
     if crypto_syms:
         _fetch_crypto_bars(crypto_syms, limit)
 
-def _fetch_equity_bars(symbols: list, limit=30):
+def _fetch_equity_bars(symbols: list, limit=60):
     if not symbols:
         return
     try:
@@ -99,7 +99,7 @@ def _fetch_equity_bars(symbols: list, limit=30):
     except Exception as e:
         logger.error(f"ref_library: _fetch_equity_bars failed: {e}")
 
-def _fetch_crypto_bars(symbols: list, limit=30):
+def _fetch_crypto_bars(symbols: list, limit=60):
     if not symbols:
         return
     try:
@@ -126,18 +126,71 @@ def _fetch_crypto_bars(symbols: list, limit=30):
         logger.error(f"ref_library: _fetch_crypto_bars failed: {e}")
 
 def _fetch_news(symbols: list = None, limit: int = 50):
-    """Fetch historical news articles via REST and write to database."""
+    """Fetch news articles via REST, store in DB, and push to signal_generator."""
     try:
         from alpaca.data.historical import NewsClient
         from alpaca.data.requests import NewsRequest
         client = NewsClient(settings.APCA_KEY, settings.APCA_SECRET)
-        # Fetch news without symbol filter (API may not support list or string)
-        req    = NewsRequest(limit=limit)
-        news   = list(client.get_news(req))
+
+        all_articles = []
+
+        # Fetch general market news
+        try:
+            req = NewsRequest(limit=limit)
+            result = client.get_news(req)
+            data = dict(result).get('data', {})
+            articles = data.get('news', []) if isinstance(data, dict) else []
+            all_articles.extend(articles)
+        except Exception as e:
+            logger.debug(f"ref_library: general news fetch: {e}")
+
+        # Fetch per-symbol news for watchlist (batches of 5 to avoid rate limits)
+        if symbols:
+            syms = [s for s in symbols if '/' not in s and len(s) <= 5][:20]
+            for i in range(0, len(syms), 5):
+                batch = syms[i:i+5]
+                try:
+                    req = NewsRequest(symbols=batch, limit=10)
+                    result = client.get_news(req)
+                    data = dict(result).get('data', {})
+                    articles = data.get('news', []) if isinstance(data, dict) else []
+                    all_articles.extend(articles)
+                except Exception as e:
+                    logger.debug(f"ref_library: symbol news fetch ({batch}): {e}")
+                if shared.RATE_LIMITED:
+                    break
+
+        # Deduplicate by article ID
+        seen = set()
+        unique = []
+        for a in all_articles:
+            aid = getattr(a, 'id', id(a))
+            if aid not in seen:
+                seen.add(aid)
+                unique.append(a)
+
+        # Store in shared state and push to signal_generator's _news dict
         with shared.cache_lock:
-            shared.historical_news = {"articles": news}
-        database.write_news(news)
-        logger.debug(f"ref_library: fetched {len(news)} news articles")
+            shared.historical_news = {"articles": unique}
+        database.write_news(unique)
+
+        # Push articles to signal_generator so sentiment scoring works immediately
+        try:
+            from agents import signal_generator
+            for article in unique:
+                article_symbols = getattr(article, 'symbols', []) or []
+                for sym in article_symbols:
+                    if hasattr(signal_generator, '_news') and hasattr(signal_generator, '_data_lock'):
+                        with signal_generator._data_lock:
+                            if sym not in signal_generator._news:
+                                signal_generator._news[sym] = []
+                            signal_generator._news[sym].append(article)
+                            signal_generator._news[sym] = signal_generator._news[sym][-10:]
+        except Exception:
+            pass
+
+        logger.info(f"ref_library: fetched {len(unique)} news articles "
+                    f"({len([a for a in unique if getattr(a, 'symbols', [])])} with symbols)")
     except Exception as e:
         logger.error(f"ref_library: _fetch_news failed: {e}")
 
@@ -175,6 +228,40 @@ def _process_dirty_symbols():
         _fetch_historical(list(dirty))
 
 # -- full load --
+def _fetch_vix():
+    """Fetch VIX proxy data (VIXY ETF) and update risk_manager._last_vix."""
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+        from agents import risk_manager
+
+        client = StockHistoricalDataClient(settings.APCA_KEY, settings.APCA_SECRET)
+        end = datetime.datetime.now(datetime.timezone.utc)
+        start = end - datetime.timedelta(days=5)
+        req = StockBarsRequest(
+            symbol_or_symbols=["VIXY"],
+            timeframe=TimeFrame.Day,
+            start=start, end=end,
+            feed=settings.DATA_FEED,
+        )
+        bars = client.get_stock_bars(req)
+        for sym, bar_list in _iter_barset(bars):
+            if bar_list:
+                # VIXY price roughly tracks VIX; scale accordingly
+                # VIXY ~$15-20 when VIX ~18, ~$30+ when VIX ~35
+                last_close = float(getattr(bar_list[-1], 'close', 0) or 0)
+                if last_close > 0:
+                    # Approximate VIX from VIXY: VIX ~ VIXY * 1.2
+                    approx_vix = last_close * 1.2
+                    risk_manager.update_vix(approx_vix)
+                    logger.info(f"ref_library: VIX proxy update from VIXY=${last_close:.2f} -> VIX~{approx_vix:.1f}")
+                    return
+        logger.debug("ref_library: VIXY bars empty, VIX unchanged")
+    except Exception as e:
+        logger.debug(f"ref_library: VIX fetch failed (non-critical): {e}")
+
+
 def _full_load():
     logger.info("ref_library: starting full cache load")
     _fetch_assets()
@@ -194,9 +281,11 @@ def _full_load():
     _fetch_historical(wl)
     _fetch_news(wl if wl else None)
     _fetch_option_chains(wl)
+    _fetch_vix()
     database.purge_old_data(days=settings.RETENTION_DAYS)
     logger.info("ref_library: full cache load complete")
 
+@shared.register_agent("ref_library", phase=4)
 def run():
     logger.info("ref_library: starting")
     try:
@@ -209,15 +298,28 @@ def run():
         logger.info("ref_library: ref_ready_event set")
 
     last_refresh = time.time()
+    last_news = time.time()
+    _NEWS_INTERVAL = 900  # refresh news every 15 min
 
     while not shared.SHUTTING_DOWN:
+        shared.heartbeat("ref_library")
         _process_dirty_symbols()
 
-        elapsed_hours = (time.time() - last_refresh) / 3600
+        now = time.time()
+        elapsed_hours = (now - last_refresh) / 3600
         if elapsed_hours >= settings.REF_REFRESH_HOURS:
             logger.info("ref_library: scheduled refresh")
             _full_load()
-            last_refresh = time.time()
+            last_refresh = now
+            last_news = now
+
+        # Refresh news more frequently during market hours
+        if (shared.MARKET_OPEN or shared.EXTENDED_HOURS) and (now - last_news) >= _NEWS_INTERVAL:
+            with shared.cache_lock:
+                wl = list(shared.watchlist) if shared.watchlist else []
+            if wl:
+                _fetch_news(wl, limit=30)
+            last_news = now
 
         time.sleep(settings.TICK_INTERVAL * 6)
 

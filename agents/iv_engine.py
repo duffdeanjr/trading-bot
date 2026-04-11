@@ -112,16 +112,29 @@ def estimate_iv_from_chain(symbol: str, S: float) -> float:
     """
     # Try to get options chain data from ref library
     with shared.cache_lock:
-        ohlcv = shared.historical_ohlcv.get(symbol, {})
+        raw = shared.historical_ohlcv.get(symbol, {})
+
+    # Convert bar list to dict if needed (ref_library stores Alpaca Bar objects)
+    if isinstance(raw, list):
+        ohlcv = {"closes": []}
+        for b in raw:
+            try:
+                ohlcv["closes"].append(float(getattr(b, "close", getattr(b, "c", 0)) or 0))
+            except Exception:
+                continue
+    elif isinstance(raw, dict):
+        ohlcv = raw
+    else:
+        ohlcv = {}
 
     # If options data present with IV field, use it directly
-    if "iv" in ohlcv:
+    if isinstance(ohlcv, dict) and "iv" in ohlcv:
         iv = ohlcv["iv"]
         snapshot_iv(symbol, iv)
         return iv
 
     # Fallback: use 30-day realized vol as IV proxy
-    closes = ohlcv.get("closes", [])
+    closes = ohlcv.get("closes", []) if isinstance(ohlcv, dict) else []
     if len(closes) >= 20:
         returns = [math.log(closes[i] / closes[i-1]) for i in range(1, len(closes))]
         if returns:
@@ -134,6 +147,107 @@ def estimate_iv_from_chain(symbol: str, S: float) -> float:
             return iv
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Options flow detection — unusual activity alerts
+# ---------------------------------------------------------------------------
+_flow_history: dict = {}  # symbol -> list of {"pc_ratio": float, "max_notional": float}
+
+
+def _get_option_chain_data(symbol: str) -> list:
+    """Read recent option chain from database for a symbol."""
+    try:
+        from storage import database
+        return database.read_option_chain_latest(symbol)
+    except Exception:
+        return []
+
+
+def detect_unusual_flow(symbols: list) -> list:
+    """
+    Scan option chains for unusual activity:
+      1. Put/call ratio >2 std devs from 20-day average
+      2. Single-trade notional > $500k
+
+    Returns list of alert dicts and writes them to shared.options_flow_alerts.
+    """
+    alerts = []
+
+    for symbol in symbols:
+        chain = _get_option_chain_data(symbol)
+        if not chain:
+            continue
+
+        # Compute put/call volume ratio and max single-trade notional
+        call_vol = sum(c.get("volume", 0) or 0 for c in chain if c.get("option_type", "").lower() in ("call", "c"))
+        put_vol = sum(c.get("volume", 0) or 0 for c in chain if c.get("option_type", "").lower() in ("put", "p"))
+
+        pc_ratio = put_vol / call_vol if call_vol > 0 else 0.0
+
+        # Max single-contract notional (price * volume * 100 multiplier)
+        max_notional = 0.0
+        max_notional_type = "unknown"
+        for c in chain:
+            price = c.get("last_price", 0) or c.get("ask", 0) or 0
+            vol = c.get("volume", 0) or 0
+            notional = price * vol * 100
+            if notional > max_notional:
+                max_notional = notional
+                max_notional_type = (c.get("option_type", "") or "").lower()
+
+        # Store history for rolling stats
+        if symbol not in _flow_history:
+            _flow_history[symbol] = []
+        _flow_history[symbol].append({"pc_ratio": pc_ratio, "max_notional": max_notional})
+        _flow_history[symbol] = _flow_history[symbol][-20:]  # keep 20-day window
+
+        history = _flow_history[symbol]
+        if len(history) < 5:
+            continue  # not enough history for stats
+
+        # Put/call ratio deviation check
+        ratios = [h["pc_ratio"] for h in history[:-1]]  # exclude current
+        if ratios:
+            mean_ratio = sum(ratios) / len(ratios)
+            if len(ratios) > 1:
+                variance = sum((r - mean_ratio) ** 2 for r in ratios) / len(ratios)
+                std_ratio = variance ** 0.5
+            else:
+                std_ratio = 0.0
+
+            if std_ratio > 0 and abs(pc_ratio - mean_ratio) > 2 * std_ratio:
+                direction = "bearish" if pc_ratio > mean_ratio else "bullish"
+                alerts.append({
+                    "symbol": symbol,
+                    "type": "pc_ratio_deviation",
+                    "direction": direction,
+                    "pc_ratio": round(pc_ratio, 3),
+                    "mean": round(mean_ratio, 3),
+                    "std": round(std_ratio, 3),
+                    "deviation_sigma": round(abs(pc_ratio - mean_ratio) / std_ratio, 1),
+                })
+                logger.info(f"iv_engine: unusual P/C ratio for {symbol}: "
+                            f"{pc_ratio:.2f} vs mean {mean_ratio:.2f} (>{2*std_ratio:.2f}) -> {direction}")
+
+        # Large notional check ($500k threshold)
+        if max_notional >= 500_000:
+            direction = "bearish" if max_notional_type in ("put", "p") else "bullish"
+            alerts.append({
+                "symbol": symbol,
+                "type": "large_notional",
+                "direction": direction,
+                "notional": round(max_notional, 0),
+                "option_type": max_notional_type,
+            })
+            logger.info(f"iv_engine: large options trade for {symbol}: "
+                        f"${max_notional:,.0f} ({max_notional_type}) -> {direction}")
+
+    # Write to shared state
+    with shared.cache_lock:
+        shared.options_flow_alerts = alerts
+
+    return alerts
 
 
 def select_strategy(ivr_data: dict) -> str:

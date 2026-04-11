@@ -15,6 +15,7 @@ import math
 import logging
 import argparse
 import datetime
+import shared
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,113 @@ def seed_strategy_scores(results: dict):
         score = 0.5 * wr + 0.5 * min(max(avg_pnl / 100, 0), 1)
         database.write_strategy_score(strat, wr, avg_pnl, 0.0, s["trades"], round(score, 3))
         print(f"  seeded score: {strat} -> {score:.3f} (wr={wr:.0%}, trades={s['trades']})")
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward evaluation (runs as a daemon thread, once per day)
+# ---------------------------------------------------------------------------
+_sharpe_fail_counts: dict = {}  # strategy -> consecutive evaluations with Sharpe < -0.5
+SHARPE_DISABLE_THRESHOLD = -0.5
+SHARPE_FAIL_LIMIT = 3
+
+
+def walk_forward_evaluate():
+    """
+    Run a 30-day rolling backtest on each strategy tag using the outcomes table.
+    Write per-strategy Sharpe and win-rate to strategy_scores.
+    If a strategy's rolling Sharpe drops below -0.5 for 3 consecutive
+    evaluations, set its score weight to 0 and log a warning.
+    """
+    from storage import database
+
+    strategies = database.get_distinct_strategies()
+    if not strategies:
+        logger.debug("backtester: walk-forward — no strategies with closed outcomes")
+        return
+
+    for strat in strategies:
+        closed = database.get_closed_outcomes(strategy=strat, limit=200)
+        if not closed:
+            continue
+
+        # Filter to last 30 days
+        cutoff = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+        recent = [t for t in closed if (t.get("exit_ts") or "") >= cutoff]
+        if len(recent) < 3:
+            continue
+
+        wins = [t for t in recent if (t.get("pnl") or 0) > 0]
+        win_rate = len(wins) / len(recent)
+
+        returns = [t.get("pnl_pct", 0) or 0 for t in recent]
+        avg_ret = sum(returns) / len(returns)
+        if len(returns) > 1:
+            variance = sum((r - avg_ret) ** 2 for r in returns) / len(returns)
+            std_ret = math.sqrt(variance) if variance > 0 else 0.0
+        else:
+            std_ret = 0.0
+
+        sharpe = (avg_ret / std_ret * math.sqrt(252)) if std_ret > 0 else 0.0
+
+        # Check auto-disable condition
+        if sharpe < SHARPE_DISABLE_THRESHOLD:
+            _sharpe_fail_counts[strat] = _sharpe_fail_counts.get(strat, 0) + 1
+        else:
+            _sharpe_fail_counts[strat] = 0
+
+        if _sharpe_fail_counts.get(strat, 0) >= SHARPE_FAIL_LIMIT:
+            # Auto-disable: set score to 0
+            score = 0.0
+            logger.warning(
+                f"backtester: AUTO-DISABLED strategy '{strat}' — "
+                f"Sharpe={sharpe:.2f} below {SHARPE_DISABLE_THRESHOLD} "
+                f"for {SHARPE_FAIL_LIMIT} consecutive evaluations"
+            )
+            database.write_agent_log(
+                ts=datetime.datetime.now(datetime.timezone.utc).timestamp(),
+                agent="backtester",
+                level="WARNING",
+                message=f"Auto-disabled strategy '{strat}': "
+                        f"rolling Sharpe={sharpe:.2f}, win_rate={win_rate:.1%}, "
+                        f"trades={len(recent)}"
+            )
+        else:
+            score = (0.4 * win_rate
+                     + 0.3 * min(max(sharpe, 0), 2) / 2
+                     + 0.3 * min(max(avg_ret, 0), 0.1) / 0.1)
+
+        database.write_strategy_score(
+            strat, win_rate, avg_ret, sharpe, len(recent), round(score, 4)
+        )
+        logger.info(
+            f"backtester: walk-forward {strat}: "
+            f"sharpe={sharpe:.2f} wr={win_rate:.1%} trades={len(recent)} score={score:.3f}"
+        )
+
+
+@shared.register_agent("walk_forward", phase=7)
+def walk_forward_loop():
+    """
+    Daemon-thread entry point. Runs walk_forward_evaluate() once per day.
+    Must be started from main.py.
+    """
+    import time
+    import shared
+
+    logger.info("backtester: walk-forward loop starting (daily evaluation)")
+    while not shared.SHUTTING_DOWN:
+        shared.heartbeat("walk_forward")
+        try:
+            walk_forward_evaluate()
+        except Exception as e:
+            logger.error(f"backtester: walk-forward error: {e}")
+        # Sleep for 24 hours (check SHUTTING_DOWN every 60s)
+        for _ in range(24 * 60):
+            if shared.SHUTTING_DOWN:
+                break
+            shared.heartbeat("walk_forward")
+            time.sleep(60)
+    logger.info("backtester: walk-forward loop exiting")
 
 
 def run_backtest(days: int = 30, capital: float = 100_000, seed_scores: bool = False):
