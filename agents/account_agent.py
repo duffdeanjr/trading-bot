@@ -23,7 +23,26 @@ def _on_fill(event):
         order = event.order
         symbol = order.symbol
         if not symbol:
-            logger.debug(f"account_agent: fill with no symbol (mleg partial fill), skipping")
+            # Multi-leg orders have no top-level symbol — extract from legs if available
+            legs = getattr(order, 'legs', None)
+            if legs:
+                for leg in legs:
+                    leg_sym = getattr(leg, 'symbol', None)
+                    leg_side = str(getattr(leg, 'side', 'buy'))
+                    leg_qty = float(getattr(leg, 'filled_qty', 0) or getattr(leg, 'qty', 0) or 0)
+                    leg_price = float(getattr(leg, 'filled_avg_price', 0) or 0)
+                    if leg_sym and leg_qty > 0:
+                        strategy = _extract_strategy_tag(order.client_order_id)
+                        database.write_trade(
+                            ts=time.time(), symbol=leg_sym, side=leg_side,
+                            qty=leg_qty, price=leg_price, notional=leg_qty * leg_price * 100,
+                            order_type=str(order.order_type),
+                            client_order_id=order.client_order_id,
+                            strategy_tag=strategy,
+                        )
+                logger.debug(f"account_agent: mleg fill recorded {len(legs)} legs")
+            else:
+                logger.debug(f"account_agent: mleg fill with no legs data, skipping")
             return
         side   = str(order.side)
         qty    = float(order.filled_qty or 0)
@@ -101,18 +120,14 @@ def _on_fill(event):
                 ctx = None
 
         if side == "buy" and existing_qty <= 0:
-            # New long entry
             database.open_outcome(symbol, strategy, "buy", price, now_iso, qty,
-                                  market_context=ctx)
+                                  market_context=ctx, is_option=is_option)
         elif side == "sell" and existing_qty <= qty:
-            # Closing a long position (full or partial exit)
             database.close_outcome(symbol, strategy, price, now_iso)
         elif side == "sell" and existing_qty <= 0:
-            # New short entry
             database.open_outcome(symbol, strategy, "sell", price, now_iso, qty,
-                                  market_context=ctx)
+                                  market_context=ctx, is_option=is_option)
         elif side == "buy" and existing_qty < 0:
-            # Closing a short position
             database.close_outcome(symbol, strategy, price, now_iso)
 
         # Optimistic position update

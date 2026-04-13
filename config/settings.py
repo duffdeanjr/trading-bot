@@ -84,6 +84,8 @@ DASHBOARD_PORT = 5050
 MARGIN_MIN_EQUITY    = 25000   # minimum equity to use margin (PDT rule)
 MAX_DAILY_LOSS_PCT   = 0.05    # circuit breaker: halt if down 5% in a day
 MAX_CONSECUTIVE_LOSSES = 5     # circuit breaker: halt after N straight losses
+DAILY_TARGET_PCT     = 0.01    # 1% daily profit target — lock gains when reached
+DAILY_TARGET_LOCK    = True    # stop opening new positions after hitting target
 
 # ── signal thresholds ────────────────────────────────────────
 RSI_OVERSOLD  = 30.0

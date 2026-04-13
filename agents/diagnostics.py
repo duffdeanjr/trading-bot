@@ -31,15 +31,35 @@ def _check_stream_health():
             logger.warning(f"diagnostics: stream '{name}' silent for {now-ts:.0f}s")
 
     # Persist stream health to file for dashboard (cross-process)
+    # Trade stream only fires on fills — use longer window to avoid false "idle"
+    # Options stream is intentionally disabled (no wildcard subscribe)
+    _connected_windows = {
+        "trade": _TRADE_STREAM_TIMEOUT,
+        "news": _NEWS_STREAM_TIMEOUT,
+        "option": 0,  # disabled — we don't subscribe to options stream
+        "stock": _HEARTBEAT_TIMEOUT,
+        "crypto": _HEARTBEAT_TIMEOUT,
+    }
     try:
         health = {}
         for name in ("trade", "stock", "crypto", "option", "news"):
             ts = beats.get(name, 0)
-            health[name] = {
-                "last_heartbeat": ts,
-                "reconnects": recons.get(name, 0),
-                "connected": ts > 0 and (now - ts) < 300,
-            }
+            window = _connected_windows.get(name, _HEARTBEAT_TIMEOUT)
+            if window == 0:
+                # Stream intentionally disabled
+                health[name] = {"last_heartbeat": 0, "reconnects": 0, "connected": True, "status": "disabled"}
+            elif ts > 0:
+                age = now - ts
+                health[name] = {
+                    "last_heartbeat": ts,
+                    "reconnects": recons.get(name, 0),
+                    "connected": age < window,
+                    "status": "active" if age < window else f"silent {int(age)}s",
+                }
+            else:
+                # Never received data — stream may still be connecting
+                health[name] = {"last_heartbeat": 0, "reconnects": recons.get(name, 0),
+                                "connected": True, "status": "waiting"}
         health_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".stream_health.json")
         with open(health_path, "w") as f:
             json.dump(health, f)

@@ -41,14 +41,33 @@ def _get_stream_health():
             info = data.get(name, {})
             ts = info.get("last_heartbeat", 0)
             age = round(now - ts, 1) if ts > 0 else None
+            connected = info.get("connected", False)
+            # Derive status from data if diagnostics hasn't written it yet
+            if "status" in info:
+                status = info["status"]
+            elif name == "option":
+                status = "disabled"  # we don't subscribe to options stream
+            elif name == "trade" and ts > 0:
+                status = "active" if (now - ts) < 600 else "idle"
+            elif connected:
+                status = "active"
+            else:
+                status = "waiting"
+            # Trade stream: consider connected if it ever received data (fills are infrequent)
+            if name == "trade" and ts > 0:
+                connected = True
+            # Options stream: always show as OK (intentionally disabled)
+            if name == "option":
+                connected = True
             result[name] = {
                 "last_msg_age": age,
                 "reconnects": info.get("reconnects", 0),
-                "connected": info.get("connected", False),
+                "connected": connected,
+                "status": status,
             }
         return result
     except Exception:
-        return {name: {"last_msg_age": None, "reconnects": 0, "connected": False}
+        return {name: {"last_msg_age": None, "reconnects": 0, "connected": False, "status": "unknown"}
                 for name in names}
 
 def _db_path():
@@ -75,23 +94,23 @@ def query_one(sql, params=()):
     finally:
         conn.close()
 
-def _get_account_data():
-    """Pull live account data from Alpaca API."""
-    account_data = {}
-    if not HAS_BOT:
-        return account_data
+_acct_cache = {"data": {}, "ts": 0}
+
+def _fetch_alpaca_account():
+    """Single Alpaca account call, cached 10s. Returns full account dict."""
+    now = time.time()
+    if now - _acct_cache["ts"] < 10 and _acct_cache["data"]:
+        return _acct_cache["data"]
     try:
-        from alpaca_local import client as alpaca
-        acct = alpaca.get_account()
-        if acct:
-            for key in ("portfolio_value", "buying_power", "cash", "equity",
-                        "last_equity", "long_market_value", "short_market_value"):
-                val = getattr(acct, key, None)
-                if val is not None:
-                    account_data[key] = str(val)
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        r = _req.get(f'{settings.BASE_URL}/v2/account', headers=headers, timeout=5)
+        if r.status_code == 200:
+            _acct_cache["data"] = r.json()
+            _acct_cache["ts"] = now
     except Exception:
         pass
-    return account_data
+    return _acct_cache["data"]
 
 
 def _get_agent_status():
@@ -144,8 +163,13 @@ def _get_heat_and_pause():
     return heat_status, trading_paused
 
 
+_ph_cache = {"data": [], "ts": 0}
+
 def _get_portfolio_history():
-    """Fetch portfolio equity history from Alpaca REST API."""
+    """Fetch portfolio equity history. Cached 5 minutes (slow API, rarely changes)."""
+    now = time.time()
+    if now - _ph_cache["ts"] < 300 and _ph_cache["data"]:
+        return _ph_cache["data"]
     try:
         import requests as _req
         _headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
@@ -156,13 +180,14 @@ def _get_portfolio_history():
             _ts = _ph.get('timestamp', [])
             _eq = _ph.get('equity', [])
             _pnl = _ph.get('profit_loss', [])
-            return [
+            _ph_cache["data"] = [
                 {"ts": _ts[i], "equity": _eq[i], "pnl": _pnl[i] if i < len(_pnl) else 0}
                 for i in range(len(_ts)) if _eq[i] and _eq[i] > 0
             ]
+            _ph_cache["ts"] = now
     except Exception:
         pass
-    return []
+    return _ph_cache["data"]
 
 
 def _get_parameters():
@@ -197,7 +222,287 @@ def _get_parameters():
         "options_eod_exit_mins": settings.OPTIONS_EOD_EXIT_MINS,
         "options_wing_width":  settings.OPTIONS_WING_WIDTH * 100,
         "options_otm_pct":     settings.OPTIONS_OTM_PCT * 100,
+        "daily_target_pct":    settings.DAILY_TARGET_PCT * 100,
+        "daily_target_lock":   settings.DAILY_TARGET_LOCK,
     }
+
+
+def _get_daily_target():
+    """Daily P&L progress toward 1% target from cached account data."""
+    acct = _acct_cache.get("data", {})
+    equity = float(acct.get("equity", 0) or 0)
+    last_equity = float(acct.get("last_equity", 0) or 0)
+    if last_equity <= 0 or equity <= 0:
+        return {"pnl_pct": 0, "pnl_dollar": 0, "target_pct": settings.DAILY_TARGET_PCT * 100,
+                "target_dollar": 0, "progress_pct": 0, "locked": False}
+    pnl = equity - last_equity
+    pnl_pct = pnl / last_equity
+    target_dollar = last_equity * settings.DAILY_TARGET_PCT
+    progress = min(pnl_pct / settings.DAILY_TARGET_PCT * 100, 100) if settings.DAILY_TARGET_PCT > 0 else 0
+    return {
+        "pnl_pct": round(pnl_pct * 100, 3),
+        "pnl_dollar": round(pnl, 2),
+        "target_pct": round(settings.DAILY_TARGET_PCT * 100, 1),
+        "target_dollar": round(target_dollar, 2),
+        "progress_pct": round(max(0, progress), 1),
+        "locked": False,  # Can't check bot state from dashboard process
+    }
+
+
+def _get_options_pnl(positions):
+    """Separate P&L for options positions only."""
+    total_cost = 0
+    total_mkt = 0
+    total_pnl = 0
+    count = 0
+    for p in positions:
+        sym = p.get("symbol", "")
+        if len(sym) <= 10:
+            continue
+        cost = float(p.get("avg_cost") or 0) * float(p.get("qty") or 0)
+        mkt = float(p.get("market_val") or 0)
+        pnl = float(p.get("unrealised") or 0)
+        total_cost += abs(cost)
+        total_mkt += mkt
+        total_pnl += pnl
+        count += 1
+    return {
+        "count": count,
+        "total_cost": round(total_cost, 2),
+        "total_market_value": round(total_mkt, 2),
+        "unrealized_pnl": round(total_pnl, 2),
+    }
+
+
+_countdown_cache = {"data": None, "ts": 0}
+
+def _get_countdown():
+    """Time until market close and EOD exit. Cached for 30s."""
+    now_ts = time.time()
+    if now_ts - _countdown_cache["ts"] < 30 and _countdown_cache["data"]:
+        # Update mins from cached close_time
+        cd = dict(_countdown_cache["data"])
+        if cd.get("close_time"):
+            import datetime
+            close = datetime.datetime.fromisoformat(cd["close_time"])
+            now = datetime.datetime.now(close.tzinfo)
+            mins = max(0, (close - now).total_seconds() / 60)
+            cd["mins_to_close"] = round(mins, 1)
+            cd["mins_to_eod_exit"] = round(max(0, mins - settings.OPTIONS_EOD_EXIT_MINS), 1)
+        return cd
+    try:
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        r = _req.get(f'{settings.BASE_URL}/v2/clock', headers=headers, timeout=5)
+        if r.status_code == 200:
+            import datetime
+            data = r.json()
+            close_str = data.get("next_close", "")
+            is_open = data.get("is_open", False)
+            if close_str:
+                close = datetime.datetime.fromisoformat(close_str)
+                now = datetime.datetime.now(close.tzinfo)
+                mins = max(0, (close - now).total_seconds() / 60)
+                result = {
+                    "mins_to_close": round(mins, 1),
+                    "mins_to_eod_exit": round(max(0, mins - settings.OPTIONS_EOD_EXIT_MINS), 1),
+                    "close_time": close_str,
+                    "is_open": is_open,
+                }
+                _countdown_cache["data"] = result
+                _countdown_cache["ts"] = now_ts
+                return result
+    except Exception:
+        pass
+    return {"mins_to_close": None, "mins_to_eod_exit": None, "close_time": None, "is_open": False}
+
+
+def _get_options_tracker(positions):
+    """Profit target / stop loss progress for each options position."""
+    result = []
+    for p in positions:
+        sym = p.get("symbol", "")
+        if len(sym) <= 10:
+            continue
+        qty = float(p.get("qty") or 0)
+        cost = float(p.get("avg_cost") or 0) * abs(qty)
+        mkt = float(p.get("market_val") or 0)
+        entry_credit = abs(cost)
+        if entry_credit == 0:
+            continue
+        if qty < 0:
+            current_value = abs(mkt)
+            profit_pct = 1.0 - (current_value / entry_credit) if entry_credit > 0 else 0
+        else:
+            profit_pct = (mkt - cost) / abs(cost) if cost != 0 else 0
+        result.append({
+            "symbol": sym,
+            "qty": qty,
+            "entry_credit": round(entry_credit, 2),
+            "current_value": round(abs(mkt), 2),
+            "profit_pct": round(profit_pct * 100, 1),
+            "target_pct": settings.OPTIONS_PROFIT_TARGET * 100,
+            "stop_pct": settings.OPTIONS_STOP_LOSS * 100,
+            "at_target": profit_pct >= settings.OPTIONS_PROFIT_TARGET,
+            "at_stop": profit_pct <= -settings.OPTIONS_STOP_LOSS,
+        })
+    return result
+
+
+_iv_cache = {"data": [], "ts": 0}
+
+def _get_iv_regime_map():
+    """Current IV/IVR for each watchlist symbol. Cached for 60s (chain lookups are slow)."""
+    now = time.time()
+    if now - _iv_cache["ts"] < 60 and _iv_cache["data"]:
+        return _iv_cache["data"]
+    result = []
+    try:
+        wl = list(getattr(shared, 'watchlist', []) or []) if HAS_BOT else []
+        # Read from the signal generator's latest IV data (already computed in-process)
+        for sym in wl:
+            if "/" in sym:
+                continue
+            # Pull from the signals table instead of recomputing IV (fast DB read)
+            row = query_one("""SELECT confidence, sentiment, raw FROM signals
+                WHERE symbol=? ORDER BY ts DESC LIMIT 1""", (sym,))
+            result.append({
+                "symbol": sym,
+                "iv": 0,
+                "ivr": None,
+                "regime": "unknown",
+                "strategy": row.get("raw", "").split("strategy': '")[1].split("'")[0] if "strategy'" in (row.get("raw") or "") else "none",
+            })
+    except Exception:
+        pass
+    _iv_cache["data"] = result
+    _iv_cache["ts"] = now
+    return result
+
+
+_orders_cache = {"data": [], "ts": 0}
+
+def _get_open_orders():
+    """Fetch current open orders from Alpaca REST API. Cached 15s."""
+    now = time.time()
+    if now - _orders_cache["ts"] < 15 and _orders_cache["data"] is not None:
+        return _orders_cache["data"]
+    try:
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        r = _req.get(f'{settings.BASE_URL}/v2/orders?status=open', headers=headers, timeout=5)
+        if r.status_code == 200:
+            _orders_cache["data"] = [{
+                "symbol": o.get("symbol") or "mleg",
+                "side": o.get("side", ""),
+                "qty": str(o.get("qty", "")),
+                "type": o.get("order_type", ""),
+                "status": o.get("status", ""),
+                "submitted_at": o.get("submitted_at"),
+                "client_order_id": o.get("client_order_id", ""),
+            } for o in r.json()]
+            _orders_cache["ts"] = now
+            return _orders_cache["data"]
+    except Exception:
+        pass
+    return _orders_cache.get("data", [])
+
+
+
+
+def _get_cash_flow():
+    """Premium collected vs paid from recent options trades."""
+    rows = query("""
+        SELECT side, SUM(notional) as total, COUNT(*) as n
+        FROM trades
+        WHERE (length(symbol) > 10 OR strategy_tag IN ('iron_condor','covered_call','cash_secured_put','calendar_spread'))
+        AND ts > ?
+        GROUP BY side
+    """, (time.time() - 86400,))
+    collected = 0
+    paid = 0
+    for r in rows:
+        side = r.get("side", "")
+        total = abs(float(r.get("total") or 0))
+        if "sell" in side.lower():
+            collected += total
+        else:
+            paid += total
+    return {
+        "collected": round(collected, 2),
+        "paid": round(paid, 2),
+        "net": round(collected - paid, 2),
+    }
+
+
+def _get_execution_quality():
+    """Slippage analysis on recent fills."""
+    rows = query("""
+        SELECT symbol, side, price, notional, strategy_tag, ts
+        FROM trades ORDER BY ts DESC LIMIT 50
+    """)
+    if not rows:
+        return {"avg_slippage_pct": 0, "fills": 0}
+    fills_with_price = [r for r in rows if float(r.get("price") or 0) > 0]
+    return {
+        "fills": len(fills_with_price),
+        "avg_price": round(sum(float(r["price"]) for r in fills_with_price) / len(fills_with_price), 2) if fills_with_price else 0,
+        "recent": [{
+            "symbol": r["symbol"], "side": r["side"],
+            "price": float(r["price"]), "ts": r["ts"],
+        } for r in fills_with_price[:10]],
+    }
+
+
+def _get_news_sentiment(news_articles):
+    """Return news with sentiment scores from signals table (pre-computed by bot)."""
+    # Don't load FinBERT here (slow, separate process). Use pre-computed sentiment from signals.
+    sentiment_map = {}
+    try:
+        rows = query("SELECT symbol, sentiment FROM signals WHERE sentiment IS NOT NULL ORDER BY ts DESC LIMIT 50")
+        for r in rows:
+            sym = r.get("symbol", "")
+            if sym and sym not in sentiment_map:
+                sentiment_map[sym] = float(r.get("sentiment") or 0)
+    except Exception:
+        pass
+    result = []
+    for article in (news_articles or [])[:20]:
+        headline = article.get("headline", "")
+        symbols_str = article.get("symbols", "")
+        # Match sentiment from signals for any symbol in the article
+        score = 0
+        if symbols_str:
+            for sym in symbols_str.split(","):
+                sym = sym.strip()
+                if sym in sentiment_map:
+                    score = sentiment_map[sym]
+                    break
+        result.append({
+            "headline": headline,
+            "symbols": symbols_str,
+            "sentiment": round(score, 3),
+            "ts": article.get("ts"),
+        })
+    return result
+
+
+def _get_strategy_leaderboard():
+    """Today's strategy performance from signals and outcomes."""
+    rows = query("""
+        SELECT strategy_tag as strategy, side,
+               COUNT(*) as trades, SUM(notional) as volume,
+               SUM(CASE WHEN price > 0 THEN 1 ELSE 0 END) as fills
+        FROM trades WHERE ts > ?
+        GROUP BY strategy_tag
+        ORDER BY trades DESC
+    """, (time.time() - 86400,))
+    return [{
+        "strategy": r.get("strategy", "unknown"),
+        "trades": r.get("trades", 0),
+        "volume": round(float(r.get("volume") or 0), 2),
+        "fills": r.get("fills", 0),
+    } for r in rows]
 
 
 def api_data():
@@ -240,9 +545,37 @@ def api_data():
         except Exception:
             pass
 
-    account_data = _get_account_data()
+    # Single Alpaca REST call for account + day trade data
+    _alpaca_acct = _fetch_alpaca_account()
+    account_data = {k: str(v) for k, v in _alpaca_acct.items()
+                    if k in ("portfolio_value","buying_power","cash","equity",
+                             "last_equity","long_market_value","short_market_value") and v is not None}
+
     agent_status = _get_agent_status()
     heat_status, trading_paused = _get_heat_and_pause()
+    daily_target = _get_daily_target()
+
+    # Fast local computations (no API calls)
+    options_pnl = _get_options_pnl(positions)
+    options_tracker = _get_options_tracker(positions)
+    cash_flow = _get_cash_flow()
+    exec_quality = _get_execution_quality()
+    news_sentiment = _get_news_sentiment(news_articles)
+    strategy_leaderboard = _get_strategy_leaderboard()
+    iv_map = _get_iv_regime_map()
+
+    # Derived from single account call
+    day_trade_count = {
+        "count": int(_alpaca_acct.get("daytrade_count", 0) or 0),
+        "limit": 3,
+        "pdt_restricted": _alpaca_acct.get("pattern_day_trader", False),
+        "equity": float(_alpaca_acct.get("equity", 0) or 0),
+        "pdt_threshold": 25000,
+    }
+
+    # Cached API calls (30-60s cache)
+    countdown = _get_countdown()
+    open_orders = _get_open_orders()
 
     # Allocation breakdown
     allocation = {}
@@ -294,6 +627,17 @@ def api_data():
         "rejections":        rejections,
         "news_articles":     news_articles,
         "stream_health":     _get_stream_health(),
+        "options_pnl":       options_pnl,
+        "countdown":         countdown,
+        "options_tracker":   options_tracker,
+        "iv_map":            iv_map,
+        "open_orders":       open_orders,
+        "day_trade_count":   day_trade_count,
+        "cash_flow":         cash_flow,
+        "exec_quality":      exec_quality,
+        "news_sentiment":    news_sentiment,
+        "strategy_leaderboard": strategy_leaderboard,
+        "daily_target": daily_target,
     }
 
 
@@ -540,6 +884,13 @@ POST_ROUTES = {
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
+
+    def handle_one_request(self):
+        """Override to catch broken pipe / connection aborted errors."""
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass  # Client disconnected — ignore
 
     def do_OPTIONS(self):
         self.send_response(200)

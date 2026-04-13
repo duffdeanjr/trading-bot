@@ -307,7 +307,7 @@ def compute_reward(strategy_id: str, decision_ts: float,
         window_end = decision_ts + REWARD_WINDOW_S
 
         rows = conn.execute(
-            """SELECT pnl, qty, entry_price, side FROM outcomes
+            """SELECT pnl, qty, entry_price, side, is_option, symbol FROM outcomes
                WHERE strategy = ? AND entry_ts >= ? AND entry_ts <= ?
                AND pnl IS NOT NULL AND status = 'closed'""",
             (strategy_id,
@@ -323,7 +323,10 @@ def compute_reward(strategy_id: str, decision_ts: float,
             pnl = float(row["pnl"] or 0)
             qty = float(row["qty"] or 1)
             entry_price = float(row["entry_price"] or 1)
-            notional = abs(qty * entry_price)
+            # Options: use 100x multiplier for correct notional
+            is_opt = row["is_option"] if "is_option" in row.keys() else (len(row.get("symbol", "")) > 10)
+            multiplier = 100 if is_opt else 1
+            notional = abs(qty * entry_price * multiplier)
             if notional > 0:
                 normalized_returns.append(pnl / notional)
 

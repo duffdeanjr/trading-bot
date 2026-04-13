@@ -232,14 +232,16 @@ def _check_options_exits() -> list:
             continue
 
         if qty < 0:
-            # Short position: profit when market_value approaches 0
+            # Short position: profit when current_value < entry_credit (premium decays)
+            # loss when current_value > entry_credit (position moves against us)
             current_value = abs(mkt_val)
             profit_pct = 1.0 - (current_value / entry_credit) if entry_credit > 0 else 0
-            loss_pct = (current_value / entry_credit) - 1.0 if entry_credit > 0 else 0
+            # loss_pct is positive when losing (current_value grew beyond entry)
+            loss_pct = max(0, (current_value / entry_credit) - 1.0) if entry_credit > 0 else 0
         else:
             # Long position: profit when market_value > cost
             profit_pct = (mkt_val - cost) / abs(cost) if cost != 0 else 0
-            loss_pct = -profit_pct
+            loss_pct = max(0, -profit_pct)
 
         close_side = "buy" if qty < 0 else "sell"
 
@@ -530,7 +532,10 @@ def _emit_equity_signals(symbols: list) -> list:
             key_strat = sig.get("strategy", "unknown")
 
             # Skip strategies not active for the current regime
-            if active_strategies is not None and key_strat not in active_strategies:
+            # Options strategies are exempt from regime filtering (they have their own IV-based gates)
+            if (active_strategies is not None
+                    and key_strat not in active_strategies
+                    and key_strat not in _OPTIONS_STRATEGIES):
                 logger.debug(f"signal_generator: skipping {key_strat} for {symbol} "
                              f"(not active in {current_regime} regime)")
                 continue
@@ -805,7 +810,8 @@ def run():
         options_signals = []
         for sig in all_signals:
             if sig.get("order_class") in ("mleg", "simple") and sig.get("strategy") in (
-                "iron_condor", "covered_call", "cash_secured_put", "calendar_spread", "auto_roll"
+                "iron_condor", "covered_call", "cash_secured_put", "calendar_spread",
+                "auto_roll", "options_exit"
             ):
                 options_signals.append(sig)
             else:

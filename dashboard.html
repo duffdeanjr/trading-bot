@@ -302,7 +302,14 @@ a { color: var(--cyan); text-decoration: none; }
         <div class="card-label">Portfolio value</div>
         <div class="card-value" id="portValue">—</div>
         <div class="card-sub" id="portChange">—</div>
-        <svg id="sparkIntraday" viewBox="0 0 120 24" style="width:100%;margin-top:8px;display:block;"></svg>
+        <div style="margin-top:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+            <span style="color:var(--text-3);">Daily target</span>
+            <span id="dailyTargetLabel" style="color:var(--text-3);">0% / 1%</span>
+          </div>
+          <div class="prog-track" style="height:8px;"><div id="dailyTargetBar" class="prog-fill" style="width:0%;background:var(--cyan);"></div></div>
+          <div id="dailyTargetStatus" style="font-size:11px;color:var(--text-4);margin-top:2px;"></div>
+        </div>
       </div>
       <div class="card">
         <div class="card-label">Buying power</div>
@@ -318,6 +325,30 @@ a { color: var(--cyan); text-decoration: none; }
         <div class="card-label">Active signals</div>
         <div class="card-value" id="activeSignals">0</div>
         <div class="card-sub" id="avgConfidence">Avg confidence: —</div>
+      </div>
+    </div>
+
+    <!-- Options P&L + Countdown Row -->
+    <div class="grid-4 mb">
+      <div class="card">
+        <div class="card-label">Options P&L</div>
+        <div class="card-value" id="optionsPnl">—</div>
+        <div class="card-sub" id="optionsPnlCount">0 positions</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Market close</div>
+        <div class="card-value" id="countdownClose">—</div>
+        <div class="card-sub" id="countdownEod">—</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Day trades (PDT)</div>
+        <div class="card-value" id="pdtCount">—</div>
+        <div class="card-sub" id="pdtStatus">—</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Premium flow (24h)</div>
+        <div class="card-value" id="cashFlowNet">—</div>
+        <div class="card-sub" id="cashFlowDetail">—</div>
       </div>
     </div>
 
@@ -424,17 +455,18 @@ a { color: var(--cyan); text-decoration: none; }
     </div>
   </div>
 
-  <!-- ═══════════════════════════ TAB 2: PERFORMANCE ══════════════ -->
+  <!-- ═══════════════════════════ TAB: PERFORMANCE ═════════════════ -->
   <div class="tab-content" id="tab-performance">
 
     <!-- Subtab toggles -->
     <div class="subtabs" id="perfSubtabs">
-      <div class="subtab active" data-subtab="pnl">P&L</div>
+      <div class="subtab active" data-subtab="stocks">Stocks</div>
+      <div class="subtab" data-subtab="options">Options</div>
       <div class="subtab" data-subtab="strategy">Strategy</div>
     </div>
 
-    <!-- ── Subtab: P&L ─────────────────────────────────────────── -->
-    <div class="subtab-content active" id="subtab-pnl">
+    <!-- ── Subtab: Stocks ──────────────────────────────────────── -->
+    <div class="subtab-content active" id="subtab-stocks">
 
       <!-- Stat Cards -->
       <div class="grid-5 mb">
@@ -491,6 +523,47 @@ a { color: var(--cyan); text-decoration: none; }
       <div class="card mb">
         <div class="card-label">P&L calendar</div>
         <canvas id="chartPnlCalendar" height="160"></canvas>
+      </div>
+
+    </div>
+
+    <!-- ── Subtab: Options ─────────────────────────────────────── -->
+    <div class="subtab-content" id="subtab-options">
+
+      <!-- Profit Target / Stop Loss Tracker -->
+      <div class="card mb">
+        <div class="card-label">Options Position Tracker</div>
+        <div id="optionsTracker" style="font-size:13px;"></div>
+      </div>
+
+      <!-- IV Regime Heatmap -->
+      <div class="card mb">
+        <div class="card-label">IV Regime Map</div>
+        <div id="ivRegimeMap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;"></div>
+      </div>
+
+      <!-- Open Orders -->
+      <div class="card mb">
+        <div class="card-label">Live Orders</div>
+        <div id="openOrders" style="font-size:13px;"></div>
+      </div>
+
+      <!-- Strategy Leaderboard + Execution Quality -->
+      <div class="grid-2 mb">
+        <div class="card">
+          <div class="card-label">Strategy Leaderboard (24h)</div>
+          <div id="strategyLeaderboard" style="font-size:13px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Execution Quality</div>
+          <div id="execQuality" style="font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- News Sentiment -->
+      <div class="card mb">
+        <div class="card-label">News Sentiment Feed</div>
+        <div id="newsSentiment" style="font-size:13px;max-height:400px;overflow-y:auto;"></div>
       </div>
 
     </div>
@@ -864,6 +937,18 @@ async function fetchData() {
       options_trades: (raw.options_trades || []).filter(t => t.qty > 0 && t.price > 0),
       rejections: raw.rejections || [],
       stream_health: raw.stream_health || {},
+      // New data sources
+      options_pnl: raw.options_pnl || {},
+      countdown: raw.countdown || {},
+      options_tracker: raw.options_tracker || [],
+      iv_map: raw.iv_map || [],
+      open_orders: raw.open_orders || [],
+      day_trade_count: raw.day_trade_count || {},
+      cash_flow: raw.cash_flow || {},
+      exec_quality: raw.exec_quality || {},
+      news_sentiment: raw.news_sentiment || [],
+      strategy_leaderboard: raw.strategy_leaderboard || [],
+      daily_target: raw.daily_target || {},
       // Errors from agent_logs
       errors: (raw.errors || []).map(e => ({
         msg: `${e.agent}: ${(e.message || '').substring(0, 60)}`,
@@ -1094,8 +1179,8 @@ function renderCharts() {
     renderAllocation();
   }
   if (activeTab === 'performance') {
-    const activeSubtab = document.querySelector('#perfSubtabs .subtab.active')?.dataset.subtab || 'pnl';
-    if (activeSubtab === 'pnl') {
+    const activeSubtab = document.querySelector('#perfSubtabs .subtab.active')?.dataset.subtab || 'stocks';
+    if (activeSubtab === 'stocks') {
       renderDrawdown();
       renderIntradayChart(positions);
       renderDailyPnl();
@@ -1183,6 +1268,24 @@ function render() {
   renderPnlByClass(positions);
   renderSignals(signals);
   renderAgentDots();
+
+  // ── New dashboard cards ──
+  renderDailyTarget();
+  renderOptionsPnl();
+  renderCountdown();
+  renderPdtCount();
+  renderCashFlow();
+
+  // ── Options tab ──
+  renderOptionsTracker();
+  renderIvRegimeMap();
+  renderOpenOrders();
+  renderStrategyLeaderboard();
+  renderExecQuality();
+  renderNewsSentiment();
+
+  // ── Notifications ──
+  checkNotifications();
 
   // Performance text
   $('totalTrades').textContent = state.total_trades || '0';
@@ -1424,6 +1527,298 @@ function renderAgentDots() {
     </div>`;
   }).join('');
   if (html !== _lastAgentDotsHTML) { $('agentDots').innerHTML = html; _lastAgentDotsHTML = html; }
+}
+
+// ── New Dashboard Card Renders ──────────────────────────────────
+
+function renderDailyTarget() {
+  const dt = state.daily_target || {};
+  const pnlPct = dt.pnl_pct || 0;
+  const targetPct = dt.target_pct || 1;
+  const progress = dt.progress_pct || 0;
+  const pnlDollar = dt.pnl_dollar || 0;
+  const targetDollar = dt.target_dollar || 0;
+  const locked = dt.locked || false;
+
+  const color = locked ? 'var(--green)' : pnlPct >= 0 ? 'var(--cyan)' : 'var(--red)';
+  $('dailyTargetLabel').textContent = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% / ${targetPct}%`;
+  $('dailyTargetLabel').style.color = color;
+  $('dailyTargetBar').style.width = `${Math.min(Math.max(progress, 0), 100)}%`;
+  $('dailyTargetBar').style.background = color;
+
+  if (locked) {
+    $('dailyTargetStatus').textContent = '🎯 TARGET REACHED — gains locked';
+    $('dailyTargetStatus').style.color = 'var(--green)';
+  } else if (pnlDollar !== 0) {
+    const remaining = targetDollar - pnlDollar;
+    $('dailyTargetStatus').textContent = remaining > 0
+      ? `$${remaining.toFixed(0)} to target ($${targetDollar.toFixed(0)})`
+      : `$${Math.abs(pnlDollar).toFixed(0)} / $${targetDollar.toFixed(0)}`;
+    $('dailyTargetStatus').style.color = 'var(--text-4)';
+  } else {
+    $('dailyTargetStatus').textContent = `Target: $${targetDollar.toFixed(0)}`;
+    $('dailyTargetStatus').style.color = 'var(--text-4)';
+  }
+}
+
+function renderOptionsPnl() {
+  const op = state.options_pnl || {};
+  const pnl = op.unrealized_pnl || 0;
+  $('optionsPnl').textContent = fmtPnl(pnl);
+  $('optionsPnl').className = 'card-value ' + pnlClass(pnl);
+  $('optionsPnlCount').textContent = `${op.count || 0} positions · mkt ${fmt(op.total_market_value)}`;
+}
+
+function renderCountdown() {
+  const cd = state.countdown || {};
+  const mins = cd.mins_to_close;
+  if (mins == null || !cd.is_open) {
+    $('countdownClose').textContent = 'CLOSED';
+    $('countdownClose').style.color = 'var(--text-3)';
+    $('countdownEod').textContent = '';
+    return;
+  }
+  const h = Math.floor(mins / 60);
+  const m = Math.floor(mins % 60);
+  $('countdownClose').textContent = `${h}h ${m}m`;
+  $('countdownClose').style.color = mins < 30 ? 'var(--red)' : mins < 60 ? 'var(--amber)' : 'var(--green)';
+  const eodMins = cd.mins_to_eod_exit || 0;
+  if (eodMins > 0) {
+    const eh = Math.floor(eodMins / 60);
+    const em = Math.floor(eodMins % 60);
+    $('countdownEod').textContent = `EOD exit in ${eh}h ${em}m`;
+    $('countdownEod').style.color = eodMins < 15 ? 'var(--red)' : 'var(--text-3)';
+  } else {
+    $('countdownEod').textContent = 'EOD exit imminent';
+    $('countdownEod').style.color = 'var(--red)';
+  }
+}
+
+function renderPdtCount() {
+  const pdt = state.day_trade_count || {};
+  const count = pdt.count || 0;
+  const limit = pdt.limit || 3;
+  $('pdtCount').textContent = `${count} / ${limit}`;
+  $('pdtCount').style.color = count >= limit ? 'var(--red)' : count >= 2 ? 'var(--amber)' : 'var(--green)';
+  const eq = pdt.equity || 0;
+  $('pdtStatus').textContent = eq >= pdt.pdt_threshold ? 'PDT exempt (>$25K)' :
+    pdt.pdt_restricted ? 'PDT RESTRICTED' : `${limit - count} trades left`;
+  $('pdtStatus').style.color = pdt.pdt_restricted ? 'var(--red)' : 'var(--text-3)';
+}
+
+function renderCashFlow() {
+  const cf = state.cash_flow || {};
+  const net = cf.net || 0;
+  $('cashFlowNet').textContent = fmtPnl(net);
+  $('cashFlowNet').className = 'card-value ' + pnlClass(net);
+  $('cashFlowDetail').textContent = `Collected: ${fmt(cf.collected)} · Paid: ${fmt(cf.paid)}`;
+}
+
+// ── Options Tab Renders ─────────────────────────────────────────
+
+let _lastTrackerHTML = '';
+function renderOptionsTracker() {
+  const tracker = state.options_tracker || [];
+  const el = $('optionsTracker');
+  if (!tracker.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No options positions to track</div>';
+    if (_lastTrackerHTML !== empty) { el.innerHTML = empty; _lastTrackerHTML = empty; }
+    return;
+  }
+  const html = tracker.map(t => {
+    const profitPct = t.profit_pct || 0;
+    const targetPct = t.target_pct || 50;
+    const stopPct = t.stop_pct || 200;
+    // Map profit range to a 0-100 bar: -stopPct..0..targetPct
+    const range = targetPct + stopPct;
+    const barPos = Math.max(0, Math.min(100, ((profitPct + stopPct) / range) * 100));
+    const barColor = t.at_target ? 'var(--green)' : t.at_stop ? 'var(--red)' : 'var(--cyan)';
+    const label = _isOption(t.symbol) ? _formatOptionSymbol(t.symbol) : t.symbol;
+    return `<div style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+        <span style="color:var(--text-1);font-weight:600;">${label}</span>
+        <span style="color:var(--text-3);">qty=${t.qty} · entry $${t.entry_credit.toFixed(0)} · now $${t.current_value.toFixed(0)}</span>
+        <span class="${pnlClass(profitPct)}" style="font-weight:600;">${profitPct > 0 ? '+' : ''}${profitPct.toFixed(1)}%</span>
+      </div>
+      <div style="position:relative;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">
+        <div style="position:absolute;left:0;height:100%;width:${barPos.toFixed(0)}%;background:${barColor};border-radius:4px;transition:width 0.5s;"></div>
+        <div style="position:absolute;left:${((stopPct) / range * 100).toFixed(0)}%;top:-2px;bottom:-2px;width:1px;background:var(--text-4);" title="Break even"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-4);margin-top:2px;">
+        <span>Stop -${stopPct}%</span><span>Target +${targetPct}%</span>
+      </div>
+    </div>`;
+  }).join('');
+  if (html !== _lastTrackerHTML) { el.innerHTML = html; _lastTrackerHTML = html; }
+}
+
+let _lastIvHTML = '';
+function renderIvRegimeMap() {
+  const ivMap = state.iv_map || [];
+  const el = $('ivRegimeMap');
+  if (!ivMap.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No IV data</div>';
+    if (_lastIvHTML !== empty) { el.innerHTML = empty; _lastIvHTML = empty; }
+    return;
+  }
+  const regimeColor = { high: 'var(--red)', normal: 'var(--amber)', low: 'var(--green)', unknown: 'var(--text-4)' };
+  const html = ivMap.map(s => `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="color:var(--text-1);font-weight:600;">${s.symbol}</span>
+        <span style="color:${regimeColor[s.regime]};font-size:12px;font-weight:600;text-transform:uppercase;">${s.regime}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-3);">IV: ${(s.iv * 100).toFixed(1)}%${s.ivr != null ? ` · IVR: ${s.ivr.toFixed(0)}` : ''}</div>
+      <div style="font-size:11px;color:var(--cyan);margin-top:2px;">${s.strategy !== 'none' ? '→ ' + s.strategy.replace('_',' ') : ''}</div>
+    </div>
+  `).join('');
+  if (html !== _lastIvHTML) { el.innerHTML = html; _lastIvHTML = html; }
+}
+
+let _lastOrdersHTML = '';
+function renderOpenOrders() {
+  const orders = state.open_orders || [];
+  const el = $('openOrders');
+  if (!orders.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No open orders</div>';
+    if (_lastOrdersHTML !== empty) { el.innerHTML = empty; _lastOrdersHTML = empty; }
+    return;
+  }
+  const html = `<table style="width:100%;border-collapse:collapse;">
+    <thead><tr style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:1px;">
+      <th style="text-align:left;padding:4px 8px 6px 0;">Symbol</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Side</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Qty</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Type</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Status</th>
+    </tr></thead>
+    <tbody>${orders.map(o => {
+      const side = (o.side || '').replace('OrderSide.','');
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
+        <td style="padding:6px 8px 6px 0;color:var(--text-1);font-weight:600;">${o.symbol}</td>
+        <td style="padding:6px 8px 6px 0;color:${side.toLowerCase().includes('buy') ? 'var(--green)' : 'var(--red)'};">${side}</td>
+        <td style="padding:6px 8px 6px 0;color:var(--text-2);">${o.qty}</td>
+        <td style="padding:6px 8px 6px 0;color:var(--text-3);">${(o.type || '').replace('OrderType.','')}</td>
+        <td style="padding:6px 8px 6px 0;color:var(--amber);">${(o.status || '').replace('OrderStatus.','')}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  if (html !== _lastOrdersHTML) { el.innerHTML = html; _lastOrdersHTML = html; }
+}
+
+let _lastLeaderHTML = '';
+function renderStrategyLeaderboard() {
+  const lb = state.strategy_leaderboard || [];
+  const el = $('strategyLeaderboard');
+  if (!lb.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No trades today</div>';
+    if (_lastLeaderHTML !== empty) { el.innerHTML = empty; _lastLeaderHTML = empty; }
+    return;
+  }
+  const html = lb.map((s, i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <span style="color:var(--text-1);">${medal} ${s.strategy}</span>
+      <span style="color:var(--text-3);">${s.trades} trades · ${fmt(s.volume)} vol</span>
+    </div>`;
+  }).join('');
+  if (html !== _lastLeaderHTML) { el.innerHTML = html; _lastLeaderHTML = html; }
+}
+
+let _lastExecHTML = '';
+function renderExecQuality() {
+  const eq = state.exec_quality || {};
+  const el = $('execQuality');
+  const recent = eq.recent || [];
+  if (!recent.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No recent fills</div>';
+    if (_lastExecHTML !== empty) { el.innerHTML = empty; _lastExecHTML = empty; }
+    return;
+  }
+  const html = `<div style="margin-bottom:8px;color:var(--text-2);">
+    ${eq.fills} fills · avg price $${(eq.avg_price || 0).toFixed(2)}
+  </div>` + recent.map(r => {
+    const side = (r.side || '').replace('OrderSide.','');
+    return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;">
+      <span style="color:${side.toLowerCase().includes('buy') ? 'var(--green)' : 'var(--red)'};">${side}</span>
+      <span style="color:var(--text-1);">${r.symbol}</span>
+      <span style="color:var(--text-3);">$${r.price.toFixed(2)}</span>
+    </div>`;
+  }).join('');
+  if (html !== _lastExecHTML) { el.innerHTML = html; _lastExecHTML = html; }
+}
+
+let _lastSentimentHTML = '';
+function renderNewsSentiment() {
+  const ns = state.news_sentiment || [];
+  const el = $('newsSentiment');
+  if (!ns.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No news</div>';
+    if (_lastSentimentHTML !== empty) { el.innerHTML = empty; _lastSentimentHTML = empty; }
+    return;
+  }
+  const html = ns.map(n => {
+    const s = n.sentiment || 0;
+    const color = s > 0.15 ? 'var(--green)' : s < -0.15 ? 'var(--red)' : 'var(--text-3)';
+    const label = s > 0.15 ? 'BULLISH' : s < -0.15 ? 'BEARISH' : 'NEUTRAL';
+    const symbols = n.symbols ? n.symbols.split(',').slice(0,3).join(', ') : '';
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:var(--text-1);flex:1;margin-right:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${n.headline}</span>
+        <span style="color:${color};font-size:11px;font-weight:600;white-space:nowrap;min-width:60px;text-align:right;">${label} ${(s * 100).toFixed(0)}%</span>
+      </div>
+      ${symbols ? `<div style="font-size:11px;color:var(--cyan);margin-top:2px;">${symbols}</div>` : ''}
+    </div>`;
+  }).join('');
+  if (html !== _lastSentimentHTML) { el.innerHTML = html; _lastSentimentHTML = html; }
+}
+
+// ── Notification Toasts ─────────────────────────────────────────
+
+let _lastNotifState = {};
+function checkNotifications() {
+  const tracker = state.options_tracker || [];
+  // Check for profit targets hit or stop losses
+  tracker.forEach(t => {
+    const key = t.symbol;
+    const prev = _lastNotifState[key] || {};
+    if (t.at_target && !prev.at_target) {
+      showToast(`✅ PROFIT TARGET: ${_formatOptionSymbol(t.symbol)} at +${t.profit_pct.toFixed(1)}%`, 'var(--green)');
+    }
+    if (t.at_stop && !prev.at_stop) {
+      showToast(`🛑 STOP LOSS: ${_formatOptionSymbol(t.symbol)} at ${t.profit_pct.toFixed(1)}%`, 'var(--red)');
+    }
+    _lastNotifState[key] = { at_target: t.at_target, at_stop: t.at_stop };
+  });
+  // EOD exit warning
+  const cd = state.countdown || {};
+  if (cd.mins_to_eod_exit != null && cd.mins_to_eod_exit <= 1 && cd.mins_to_eod_exit > 0) {
+    if (!_lastNotifState._eod_warned) {
+      showToast('⏰ EOD EXIT: Closing all options in < 1 minute', 'var(--amber)');
+      _lastNotifState._eod_warned = true;
+    }
+  } else {
+    _lastNotifState._eod_warned = false;
+  }
+}
+
+function showToast(message, color) {
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.style.cssText = `background:var(--bg-card);border:1px solid ${color};border-radius:var(--radius-sm);padding:12px 18px;color:${color};font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.4);opacity:0;transform:translateX(100px);transition:all 0.3s ease;max-width:350px;`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateX(0)'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(100px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 5000);
 }
 
 // ── Performance Tab Renders ──
