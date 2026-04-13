@@ -302,7 +302,14 @@ a { color: var(--cyan); text-decoration: none; }
         <div class="card-label">Portfolio value</div>
         <div class="card-value" id="portValue">—</div>
         <div class="card-sub" id="portChange">—</div>
-        <svg id="sparkIntraday" viewBox="0 0 120 24" style="width:100%;margin-top:8px;display:block;"></svg>
+        <div style="margin-top:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+            <span style="color:var(--text-3);">Daily target</span>
+            <span id="dailyTargetLabel" style="color:var(--text-3);">0% / 1%</span>
+          </div>
+          <div class="prog-track" style="height:8px;"><div id="dailyTargetBar" class="prog-fill" style="width:0%;background:var(--cyan);"></div></div>
+          <div id="dailyTargetStatus" style="font-size:11px;color:var(--text-4);margin-top:2px;"></div>
+        </div>
       </div>
       <div class="card">
         <div class="card-label">Buying power</div>
@@ -319,6 +326,21 @@ a { color: var(--cyan); text-decoration: none; }
         <div class="card-value" id="activeSignals">0</div>
         <div class="card-sub" id="avgConfidence">Avg confidence: —</div>
       </div>
+    </div>
+
+    <!-- Market Close Countdown -->
+    <div class="grid-4 mb">
+      <div class="card">
+        <div class="card-label">Market close</div>
+        <div class="card-value" id="countdownClose">—</div>
+        <div class="card-sub" id="countdownEod">—</div>
+      </div>
+    </div>
+    <!-- Hidden elements for JS that still references them -->
+    <div style="display:none;">
+      <span id="optionsPnl"></span><span id="optionsPnlCount"></span>
+      <span id="pdtCount"></span><span id="pdtStatus"></span>
+      <span id="cashFlowNet"></span><span id="cashFlowDetail"></span>
     </div>
 
     <!-- Alert Banner -->
@@ -361,29 +383,17 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Positions / Signals+Agents -->
-    <div class="grid-3-2">
+    <!-- Stock Positions + Stock Trades side by side -->
+    <div class="grid-2 mb">
       <div class="card">
-        <div class="card-label">Positions</div>
-        <div class="scroll-y">
+        <div class="card-label">Stock positions</div>
+        <div class="scroll-y" style="max-height:300px;">
           <table class="pos-table">
             <thead><tr><th>Symbol</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
-            <tbody id="positionsBody"></tbody>
+            <tbody id="stockPositionsBody"></tbody>
           </table>
         </div>
       </div>
-      <div class="card">
-        <div class="card-label">Recent signals</div>
-        <div id="signalsFeed" style="margin-bottom:16px;"></div>
-        <div style="border-top:1px solid var(--border);padding-top:12px;">
-          <div class="card-label">Agent status</div>
-          <div id="agentDots" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Trade Log -->
-    <div class="grid-2 mb">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <span class="card-label" style="margin:0;">Stock & Crypto Trades</span>
@@ -396,6 +406,19 @@ a { color: var(--cyan); text-decoration: none; }
           </table>
         </div>
         <div class="show-more" id="stockTradeMore"></div>
+      </div>
+    </div>
+
+    <!-- Options Positions + Options Trades side by side -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Options positions</div>
+        <div class="scroll-y" style="max-height:300px;">
+          <table class="pos-table">
+            <thead><tr><th>Contract</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
+            <tbody id="optionsPositionsBody"></tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -411,19 +434,46 @@ a { color: var(--cyan); text-decoration: none; }
         <div class="show-more" id="optionTradeMore"></div>
       </div>
     </div>
+
+    <!-- Investment Plan + Screener -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span class="card-label" style="margin:0;">Investment plan</span>
+          <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
+        </div>
+        <div id="planTargets"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Screener Discoveries</div>
+        <div id="screenerActivity" style="max-height:250px;overflow-y:auto;"></div>
+      </div>
+    </div>
+
+    <!-- Recent Signals + Agent Status (bottom) -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Recent signals</div>
+        <div id="signalsFeed"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Agent status</div>
+        <div id="agentDots" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- ═══════════════════════════ TAB 2: PERFORMANCE ══════════════ -->
+  <!-- ═══════════════════════════ TAB: PERFORMANCE ═════════════════ -->
   <div class="tab-content" id="tab-performance">
 
     <!-- Subtab toggles -->
     <div class="subtabs" id="perfSubtabs">
-      <div class="subtab active" data-subtab="pnl">P&L</div>
+      <div class="subtab active" data-subtab="overview">Overview</div>
       <div class="subtab" data-subtab="strategy">Strategy</div>
     </div>
 
-    <!-- ── Subtab: P&L ─────────────────────────────────────────── -->
-    <div class="subtab-content active" id="subtab-pnl">
+    <!-- ── Subtab: Overview (merged Stocks + Options) ──────────── -->
+    <div class="subtab-content active" id="subtab-overview">
 
       <!-- Stat Cards -->
       <div class="grid-5 mb">
@@ -449,19 +499,19 @@ a { color: var(--cyan); text-decoration: none; }
         </div>
       </div>
 
-      <!-- Drawdown from Peak -->
-      <div class="card mb">
-        <div class="card-label">Drawdown from peak</div>
-        <canvas id="chartDrawdown" height="110"></canvas>
-      </div>
-
-      <!-- Intraday P&L Chart -->
-      <div class="card mb">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-          <span class="card-label" style="margin:0;">Intraday P&L</span>
-          <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
+      <!-- Intraday P&L + Drawdown -->
+      <div class="grid-2 mb">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <span class="card-label" style="margin:0;">Intraday P&L</span>
+            <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
+          </div>
+          <canvas id="chartIntraday" height="100"></canvas>
         </div>
-        <canvas id="chartIntraday" height="100"></canvas>
+        <div class="card">
+          <div class="card-label">Drawdown from peak</div>
+          <canvas id="chartDrawdown" height="100"></canvas>
+        </div>
       </div>
 
       <!-- Daily P&L / Trade Distribution -->
@@ -476,13 +526,38 @@ a { color: var(--cyan); text-decoration: none; }
         </div>
       </div>
 
-      <!-- P&L Calendar Heatmap -->
+      <!-- Options Position Tracker -->
+      <div class="card mb">
+        <div class="card-label">Options Position Tracker</div>
+        <div id="optionsTracker" style="font-size:13px;"></div>
+      </div>
+
+      <!-- IV Regime Map + Strategy Leaderboard + Execution Quality -->
+      <div class="grid-3 mb">
+        <div class="card">
+          <div class="card-label">IV Regime Map</div>
+          <div id="ivRegimeMap" style="display:grid;grid-template-columns:1fr;gap:6px;font-size:12px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Strategy Leaderboard (24h)</div>
+          <div id="strategyLeaderboard" style="font-size:13px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Execution Quality</div>
+          <div id="execQuality" style="font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- P&L Calendar -->
       <div class="card mb">
         <div class="card-label">P&L calendar</div>
         <canvas id="chartPnlCalendar" height="160"></canvas>
       </div>
 
     </div>
+
+    <!-- Hidden: elements still referenced by JS -->
+    <div style="display:none;"><div id="openOrders"></div><div id="optionsActivity"></div></div>
 
     <!-- ── Subtab: Strategy ────────────────────────────────────── -->
     <div class="subtab-content" id="subtab-strategy">
@@ -506,27 +581,6 @@ a { color: var(--cyan); text-decoration: none; }
       <div class="card mb">
         <div class="card-label">P&L by strategy (cumulative)</div>
         <canvas id="chartStratAttribution" height="140"></canvas>
-      </div>
-
-      <!-- Investment Plan -->
-      <div class="card mb">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <span class="card-label" style="margin:0;">Investment plan</span>
-          <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
-        </div>
-        <div id="planTargets"></div>
-      </div>
-
-      <!-- Options Activity / Screener Discoveries -->
-      <div class="grid-2 mb">
-        <div class="card">
-          <div class="card-label">Options Activity</div>
-          <div id="optionsActivity" style="max-height:200px;overflow-y:auto;"></div>
-        </div>
-        <div class="card">
-          <div class="card-label">Screener Discoveries</div>
-          <div id="screenerActivity" style="max-height:200px;overflow-y:auto;"></div>
-        </div>
       </div>
 
       <!-- Order Rejections / Signal Confidence -->
@@ -573,6 +627,12 @@ a { color: var(--cyan); text-decoration: none; }
     <div class="card mb">
       <div class="card-label">Sentiment by Symbol</div>
       <div id="newsSentBySymbol"></div>
+    </div>
+
+    <!-- News Sentiment Feed -->
+    <div class="card mb">
+      <div class="card-label">News Sentiment Feed</div>
+      <div id="newsSentiment" style="font-size:13px;max-height:400px;overflow-y:auto;"></div>
     </div>
 
     <!-- News Feed -->
@@ -773,10 +833,16 @@ updateClock();
 // ══════════════════════════════════════════════════════════════════
 const API = '';  // same origin — dashboard.py serves both
 let state = {};
+let _fetchInFlight = false;
 
 async function fetchData() {
+  if (_fetchInFlight) return; // prevent stacking slow requests
+  _fetchInFlight = true;
   try {
-    const raw = await fetch(API + '/api/data').then(r => r.ok ? r.json() : null).catch(() => null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10s max
+    const raw = await fetch(API + '/api/data', {signal: controller.signal}).then(r => r.ok ? r.json() : null).catch(() => null);
+    clearTimeout(timeout);
     if (!raw) return;
     // Map /api/data response to our internal state shape
     const acct = raw.account || {};
@@ -853,6 +919,18 @@ async function fetchData() {
       options_trades: (raw.options_trades || []).filter(t => t.qty > 0 && t.price > 0),
       rejections: raw.rejections || [],
       stream_health: raw.stream_health || {},
+      // New data sources
+      options_pnl: raw.options_pnl || {},
+      countdown: raw.countdown || {},
+      options_tracker: raw.options_tracker || [],
+      iv_map: raw.iv_map || [],
+      open_orders: raw.open_orders || [],
+      day_trade_count: raw.day_trade_count || {},
+      cash_flow: raw.cash_flow || {},
+      exec_quality: raw.exec_quality || {},
+      news_sentiment: raw.news_sentiment || [],
+      strategy_leaderboard: raw.strategy_leaderboard || [],
+      daily_target: raw.daily_target || {},
       // Errors from agent_logs
       errors: (raw.errors || []).map(e => ({
         msg: `${e.agent}: ${(e.message || '').substring(0, 60)}`,
@@ -869,6 +947,8 @@ async function fetchData() {
     }
   } catch(e) {
     console.error('Fetch error:', e);
+  } finally {
+    _fetchInFlight = false;
   }
 }
 
@@ -1083,8 +1163,8 @@ function renderCharts() {
     renderAllocation();
   }
   if (activeTab === 'performance') {
-    const activeSubtab = document.querySelector('#perfSubtabs .subtab.active')?.dataset.subtab || 'pnl';
-    if (activeSubtab === 'pnl') {
+    const activeSubtab = document.querySelector('#perfSubtabs .subtab.active')?.dataset.subtab || 'overview';
+    if (activeSubtab === 'overview') {
       renderDrawdown();
       renderIntradayChart(positions);
       renderDailyPnl();
@@ -1168,10 +1248,29 @@ function render() {
   // ── Text-only renders (safe to run every 5s) ──
   renderAlerts(positions);
   renderPositions(positions);
+  renderAllocation();
   renderRiskGauges(positions);
   renderPnlByClass(positions);
   renderSignals(signals);
   renderAgentDots();
+
+  // ── New dashboard cards ──
+  renderDailyTarget();
+  renderOptionsPnl();
+  renderCountdown();
+  renderPdtCount();
+  renderCashFlow();
+
+  // ── Options tab ──
+  renderOptionsTracker();
+  renderIvRegimeMap();
+  renderOpenOrders();
+  renderStrategyLeaderboard();
+  renderExecQuality();
+  renderNewsSentiment();
+
+  // ── Notifications ──
+  checkNotifications();
 
   // Performance text
   $('totalTrades').textContent = state.total_trades || '0';
@@ -1213,57 +1312,115 @@ function render() {
 //  RENDER FUNCTIONS
 // ══════════════════════════════════════════════════════════════════
 
+let _lastAlertHTML = '';
 function renderAlerts(positions) {
   const alerts = [];
-  // Concentration check from pre-computed data
   const conc = state.concentration || {};
   if (conc.max_pct > 30) {
     alerts.push(`<span class="alert-label">Concentration warning:</span> <span class="alert-detail">${conc.symbol} is ${conc.max_pct.toFixed(1)}% of portfolio (limit: 15%)</span>`);
   }
-  // Agent crash check
   (state.agent_status || []).forEach(a => {
     if (a.status === 'error' || a.status === 'crashed') {
       alerts.push(`<span class="alert-label">Agent error:</span> <span class="alert-detail">${a.name} — ${a.last_error || 'unknown'}</span>`);
     }
   });
-  // Trading paused
   if (state.trading_paused) {
     alerts.push(`<span class="alert-label">Trading paused:</span> <span class="alert-detail">Order execution is halted</span>`);
   }
 
   const banner = $('alertBanner');
+  const html = alerts.join('<br>');
   if (alerts.length > 0) {
     banner.style.display = 'flex';
-    $('alertText').innerHTML = alerts.join('<br>');
+    if (html !== _lastAlertHTML) { $('alertText').innerHTML = html; _lastAlertHTML = html; }
   } else {
     banner.style.display = 'none';
+    _lastAlertHTML = '';
   }
 }
 
-function renderPositions(positions) {
-  const body = $('positionsBody');
-  if (!positions || positions.length === 0) {
-    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-4);padding:20px;">No positions</td></tr>';
-    return;
+// Cache last rendered HTML to avoid unnecessary DOM thrash on hover
+let _lastStockHTML = '';
+let _lastOptHTML = '';
+let _stockSortOrder = [];
+let _optSortOrder = [];
+
+function _isOption(symbol) {
+  return symbol && symbol.length > 10;
+}
+
+function _formatOptionSymbol(symbol) {
+  // Parse OCC format: TSLA260413C00362500 -> TSLA 4/13 362.5C
+  try {
+    const m = symbol.match(/^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+    if (!m) return symbol;
+    const [, underlying, yy, mm, dd, type, strikeRaw] = m;
+    const strike = parseInt(strikeRaw) / 1000;
+    const strikeStr = strike % 1 === 0 ? strike.toFixed(0) : strike.toFixed(1);
+    return `${underlying} ${parseInt(mm)}/${parseInt(dd)} ${strikeStr}${type}`;
+  } catch { return symbol; }
+}
+
+function _renderTable(body, items, sortOrder, isOpt) {
+  const emptyMsg = isOpt ? 'No options positions' : 'No stock positions';
+  if (!items || items.length === 0) {
+    const empty = `<tr><td colspan="4" style="text-align:center;color:var(--text-4);padding:20px;">${emptyMsg}</td></tr>`;
+    return empty;
   }
-  // Sort by value descending
-  const sorted = [...positions].sort((a, b) => (b.market_value || 0) - (a.market_value || 0));
-  body.innerHTML = sorted.map(p => {
+  // Stable sort: only re-sort when symbols change
+  const currentSymbols = items.map(p => p.symbol).sort().join(',');
+  const cachedSymbols = sortOrder.map(s => s).sort().join(',');
+  if (currentSymbols !== cachedSymbols) {
+    sortOrder.length = 0;
+    [...items].sort((a, b) => Math.abs(b.market_value || 0) - Math.abs(a.market_value || 0))
+      .forEach(p => sortOrder.push(p.symbol));
+  }
+  const posMap = {};
+  items.forEach(p => { posMap[p.symbol] = p; });
+  const sorted = sortOrder.map(s => posMap[s]).filter(Boolean);
+  items.forEach(p => { if (!sortOrder.includes(p.symbol)) sorted.push(p); });
+
+  return sorted.map(p => {
     const cls = classifySymbol(p.symbol);
     const pnl = p.unrealized_pl || p.pnl || 0;
     const qty = p.qty != null ? (Number(p.qty) === Math.floor(Number(p.qty)) ? p.qty : Number(p.qty).toFixed(4)) : '—';
+    const label = isOpt ? _formatOptionSymbol(p.symbol) : p.symbol;
+    const shortLong = isOpt ? (Number(p.qty) < 0 ? ' style="color:var(--red)"' : ' style="color:var(--green)"') : '';
     return `<tr>
-      <td class="sym sym-${cls}">${p.symbol}</td>
-      <td>${qty}</td>
+      <td class="sym sym-${cls}">${label}</td>
+      <td${shortLong}>${qty}</td>
       <td>${fmt(p.market_value)}</td>
       <td style="text-align:right" class="${pnlClass(pnl)}">${fmtPnl(pnl)}</td>
     </tr>`;
   }).join('');
 }
 
+function renderPositions(positions) {
+  const stocks = (positions || []).filter(p => !_isOption(p.symbol));
+  const options = (positions || []).filter(p => _isOption(p.symbol));
+
+  const stockHTML = _renderTable($('stockPositionsBody'), stocks, _stockSortOrder, false);
+  if (stockHTML !== _lastStockHTML) {
+    $('stockPositionsBody').innerHTML = stockHTML;
+    _lastStockHTML = stockHTML;
+  }
+
+  const optHTML = _renderTable($('optionsPositionsBody'), options, _optSortOrder, true);
+  if (optHTML !== _lastOptHTML) {
+    $('optionsPositionsBody').innerHTML = optHTML;
+    _lastOptHTML = optHTML;
+  }
+}
+
+let _lastAllocKey = '';
 function renderAllocation() {
   const alloc = state.allocation || {};
   if (Object.keys(alloc).length === 0) return;
+  // Cache key: skip redraw if allocation unchanged
+  const key = JSON.stringify(alloc);
+  if (key === _lastAllocKey) return;
+  _lastAllocKey = key;
+
   const colorMap = { crypto: '#ffaa00', us_equity: '#00c8ff', Stocks: '#00c8ff', stock: '#00c8ff', etf: '#a78bfa', us_option: '#e879f9', option: '#e879f9', unknown: '#666' };
   const nameMap = { crypto: 'Crypto', us_equity: 'Stocks', Stocks: 'Stocks', stock: 'Stocks', etf: 'ETFs', us_option: 'Options', option: 'Options', unknown: 'Other' };
   const segments = Object.entries(alloc)
@@ -1282,6 +1439,7 @@ function renderAllocation() {
   }
 }
 
+let _lastRiskHTML = '';
 function renderRiskGauges(positions) {
   const conc = state.concentration || {};
   const heat = state.heat_status || {};
@@ -1294,7 +1452,7 @@ function renderRiskGauges(positions) {
     { label: 'Concentration', value: `${(conc.max_pct || 0).toFixed(1)}% (${conc.symbol || '—'})`, pct: conc.max_pct || 0, color: (conc.max_pct || 0) < 15 ? 'var(--green)' : (conc.max_pct || 0) < 30 ? 'var(--amber)' : 'var(--red)' },
   ];
 
-  $('riskGauges').innerHTML = gauges.map(g => `
+  const html = gauges.map(g => `
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
         <span style="color:var(--text-2);font-size:13px;">${g.label}</span>
@@ -1303,8 +1461,10 @@ function renderRiskGauges(positions) {
       <div class="prog-track"><div class="prog-fill" style="width:${Math.min(g.pct, 100)}%;background:${g.color};"></div></div>
     </div>
   `).join('');
+  if (html !== _lastRiskHTML) { $('riskGauges').innerHTML = html; _lastRiskHTML = html; }
 }
 
+let _lastPnlClassHTML = '';
 function renderPnlByClass(positions) {
   const classes = {};
   positions.forEach(p => {
@@ -1316,7 +1476,7 @@ function renderPnlByClass(positions) {
   const nameMap = { crypto: 'Crypto', stock: 'Stocks', etf: 'ETFs', option: 'Options' };
   const maxAbs = Math.max(...Object.values(classes).map(Math.abs), 1);
 
-  $('pnlByClass').innerHTML = Object.entries(classes).sort((a, b) => b[1] - a[1]).map(([cls, pnl]) => `
+  const html = Object.entries(classes).sort((a, b) => b[1] - a[1]).map(([cls, pnl]) => `
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
         <span style="color:${colorMap[cls]};font-size:13px;">${nameMap[cls] || cls}</span>
@@ -1325,15 +1485,18 @@ function renderPnlByClass(positions) {
       <div class="prog-track" style="height:6px;"><div class="prog-fill" style="width:${(Math.abs(pnl) / maxAbs * 100).toFixed(0)}%;background:${pnl >= 0 ? colorMap[cls] : 'var(--red)'};opacity:0.7;"></div></div>
     </div>
   `).join('');
+  if (html !== _lastPnlClassHTML) { $('pnlByClass').innerHTML = html; _lastPnlClassHTML = html; }
 }
 
+let _lastSignalsHTML = '';
 function renderSignals(signals) {
   const feed = $('signalsFeed');
   if (!signals || signals.length === 0) {
-    feed.innerHTML = '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No active signals</div>';
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No active signals</div>';
+    if (_lastSignalsHTML !== empty) { feed.innerHTML = empty; _lastSignalsHTML = empty; }
     return;
   }
-  feed.innerHTML = signals.slice(0, 5).map(s => `
+  const html = signals.slice(0, 5).map(s => `
     <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;">
       <span style="color:var(--text-2);">${s.symbol}</span>
       <span style="color:${s.side === 'buy' ? 'var(--green)' : 'var(--red)'};">${s.side?.toUpperCase()}</span>
@@ -1341,17 +1504,312 @@ function renderSignals(signals) {
       <span style="color:var(--text-3);">${(s.confidence * 100).toFixed(0)}%</span>
     </div>
   `).join('');
+  if (html !== _lastSignalsHTML) { feed.innerHTML = html; _lastSignalsHTML = html; }
 }
 
+let _lastAgentDotsHTML = '';
 function renderAgentDots() {
   const agents = state.agent_status || [];
-  $('agentDots').innerHTML = agents.map(a => {
+  const html = agents.map(a => {
     const ok = a.status === 'running';
     return `<div style="display:flex;align-items:center;gap:5px;">
       <span class="status-dot ${ok ? 'dot-ok' : a.status === 'stale' ? 'dot-warn' : 'dot-err'}"></span>
       <span style="color:var(--text-2);font-size:13px;">${a.name}</span>
     </div>`;
   }).join('');
+  if (html !== _lastAgentDotsHTML) { $('agentDots').innerHTML = html; _lastAgentDotsHTML = html; }
+}
+
+// ── New Dashboard Card Renders ──────────────────────────────────
+
+function renderDailyTarget() {
+  const dt = state.daily_target || {};
+  const pnlPct = dt.pnl_pct || 0;
+  const targetPct = dt.target_pct || 1;
+  const progress = dt.progress_pct || 0;
+  const pnlDollar = dt.pnl_dollar || 0;
+  const targetDollar = dt.target_dollar || 0;
+  const locked = dt.locked || false;
+
+  const color = locked ? 'var(--green)' : pnlPct >= 0 ? 'var(--cyan)' : 'var(--red)';
+  $('dailyTargetLabel').textContent = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% / ${targetPct}%`;
+  $('dailyTargetLabel').style.color = color;
+  $('dailyTargetBar').style.width = `${Math.min(Math.max(progress, 0), 100)}%`;
+  $('dailyTargetBar').style.background = color;
+
+  if (locked) {
+    $('dailyTargetStatus').textContent = '🎯 TARGET REACHED — gains locked';
+    $('dailyTargetStatus').style.color = 'var(--green)';
+  } else if (pnlDollar !== 0) {
+    const remaining = targetDollar - pnlDollar;
+    $('dailyTargetStatus').textContent = remaining > 0
+      ? `$${remaining.toFixed(0)} to target ($${targetDollar.toFixed(0)})`
+      : `$${Math.abs(pnlDollar).toFixed(0)} / $${targetDollar.toFixed(0)}`;
+    $('dailyTargetStatus').style.color = 'var(--text-4)';
+  } else {
+    $('dailyTargetStatus').textContent = `Target: $${targetDollar.toFixed(0)}`;
+    $('dailyTargetStatus').style.color = 'var(--text-4)';
+  }
+}
+
+function renderOptionsPnl() {
+  const op = state.options_pnl || {};
+  const pnl = op.unrealized_pnl || 0;
+  $('optionsPnl').textContent = fmtPnl(pnl);
+  $('optionsPnl').className = 'card-value ' + pnlClass(pnl);
+  $('optionsPnlCount').textContent = `${op.count || 0} positions · mkt ${fmt(op.total_market_value)}`;
+}
+
+function renderCountdown() {
+  const cd = state.countdown || {};
+  const mins = cd.mins_to_close;
+  if (mins == null || !cd.is_open) {
+    $('countdownClose').textContent = 'CLOSED';
+    $('countdownClose').style.color = 'var(--text-3)';
+    $('countdownEod').textContent = '';
+    return;
+  }
+  const h = Math.floor(mins / 60);
+  const m = Math.floor(mins % 60);
+  $('countdownClose').textContent = `${h}h ${m}m`;
+  $('countdownClose').style.color = mins < 30 ? 'var(--red)' : mins < 60 ? 'var(--amber)' : 'var(--green)';
+  const eodMins = cd.mins_to_eod_exit || 0;
+  if (eodMins > 0) {
+    const eh = Math.floor(eodMins / 60);
+    const em = Math.floor(eodMins % 60);
+    $('countdownEod').textContent = `EOD exit in ${eh}h ${em}m`;
+    $('countdownEod').style.color = eodMins < 15 ? 'var(--red)' : 'var(--text-3)';
+  } else {
+    $('countdownEod').textContent = 'EOD exit imminent';
+    $('countdownEod').style.color = 'var(--red)';
+  }
+}
+
+function renderPdtCount() {
+  const pdt = state.day_trade_count || {};
+  const count = pdt.count || 0;
+  const limit = pdt.limit || 3;
+  $('pdtCount').textContent = `${count} / ${limit}`;
+  $('pdtCount').style.color = count >= limit ? 'var(--red)' : count >= 2 ? 'var(--amber)' : 'var(--green)';
+  const eq = pdt.equity || 0;
+  $('pdtStatus').textContent = eq >= pdt.pdt_threshold ? 'PDT exempt (>$25K)' :
+    pdt.pdt_restricted ? 'PDT RESTRICTED' : `${limit - count} trades left`;
+  $('pdtStatus').style.color = pdt.pdt_restricted ? 'var(--red)' : 'var(--text-3)';
+}
+
+function renderCashFlow() {
+  const cf = state.cash_flow || {};
+  const net = cf.net || 0;
+  $('cashFlowNet').textContent = fmtPnl(net);
+  $('cashFlowNet').className = 'card-value ' + pnlClass(net);
+  $('cashFlowDetail').textContent = `Collected: ${fmt(cf.collected)} · Paid: ${fmt(cf.paid)}`;
+}
+
+// ── Options Tab Renders ─────────────────────────────────────────
+
+let _lastTrackerHTML = '';
+function renderOptionsTracker() {
+  const tracker = state.options_tracker || [];
+  const el = $('optionsTracker');
+  if (!tracker.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No options positions to track</div>';
+    if (_lastTrackerHTML !== empty) { el.innerHTML = empty; _lastTrackerHTML = empty; }
+    return;
+  }
+  const html = tracker.map(t => {
+    const profitPct = t.profit_pct || 0;
+    const targetPct = t.target_pct || 50;
+    const stopPct = t.stop_pct || 200;
+    // Map profit range to a 0-100 bar: -stopPct..0..targetPct
+    const range = targetPct + stopPct;
+    const barPos = Math.max(0, Math.min(100, ((profitPct + stopPct) / range) * 100));
+    const barColor = t.at_target ? 'var(--green)' : t.at_stop ? 'var(--red)' : 'var(--cyan)';
+    const label = _isOption(t.symbol) ? _formatOptionSymbol(t.symbol) : t.symbol;
+    return `<div style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+        <span style="color:var(--text-1);font-weight:600;">${label}</span>
+        <span style="color:var(--text-3);">qty=${t.qty} · entry $${t.entry_credit.toFixed(0)} · now $${t.current_value.toFixed(0)}</span>
+        <span class="${pnlClass(profitPct)}" style="font-weight:600;">${profitPct > 0 ? '+' : ''}${profitPct.toFixed(1)}%</span>
+      </div>
+      <div style="position:relative;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">
+        <div style="position:absolute;left:0;height:100%;width:${barPos.toFixed(0)}%;background:${barColor};border-radius:4px;transition:width 0.5s;"></div>
+        <div style="position:absolute;left:${((stopPct) / range * 100).toFixed(0)}%;top:-2px;bottom:-2px;width:1px;background:var(--text-4);" title="Break even"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-4);margin-top:2px;">
+        <span>Stop -${stopPct}%</span><span>Target +${targetPct}%</span>
+      </div>
+    </div>`;
+  }).join('');
+  if (html !== _lastTrackerHTML) { el.innerHTML = html; _lastTrackerHTML = html; }
+}
+
+let _lastIvHTML = '';
+function renderIvRegimeMap() {
+  const ivMap = state.iv_map || [];
+  const el = $('ivRegimeMap');
+  if (!ivMap.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No IV data</div>';
+    if (_lastIvHTML !== empty) { el.innerHTML = empty; _lastIvHTML = empty; }
+    return;
+  }
+  const regimeColor = { high: 'var(--red)', normal: 'var(--amber)', low: 'var(--green)', unknown: 'var(--text-4)' };
+  const html = ivMap.map(s => `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="color:var(--text-1);font-weight:600;">${s.symbol}</span>
+        <span style="color:${regimeColor[s.regime]};font-size:12px;font-weight:600;text-transform:uppercase;">${s.regime}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-3);">IV: ${(s.iv * 100).toFixed(1)}%${s.ivr != null ? ` · IVR: ${s.ivr.toFixed(0)}` : ''}</div>
+      <div style="font-size:11px;color:var(--cyan);margin-top:2px;">${s.strategy !== 'none' ? '→ ' + s.strategy.replace('_',' ') : ''}</div>
+    </div>
+  `).join('');
+  if (html !== _lastIvHTML) { el.innerHTML = html; _lastIvHTML = html; }
+}
+
+let _lastOrdersHTML = '';
+function renderOpenOrders() {
+  const orders = state.open_orders || [];
+  const el = $('openOrders');
+  if (!orders.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No open orders</div>';
+    if (_lastOrdersHTML !== empty) { el.innerHTML = empty; _lastOrdersHTML = empty; }
+    return;
+  }
+  const html = `<table style="width:100%;border-collapse:collapse;">
+    <thead><tr style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:1px;">
+      <th style="text-align:left;padding:4px 8px 6px 0;">Symbol</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Side</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Qty</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Type</th>
+      <th style="text-align:left;padding:4px 8px 6px 0;">Status</th>
+    </tr></thead>
+    <tbody>${orders.map(o => {
+      const side = (o.side || '').replace('OrderSide.','');
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
+        <td style="padding:6px 8px 6px 0;color:var(--text-1);font-weight:600;">${o.symbol}</td>
+        <td style="padding:6px 8px 6px 0;color:${side.toLowerCase().includes('buy') ? 'var(--green)' : 'var(--red)'};">${side}</td>
+        <td style="padding:6px 8px 6px 0;color:var(--text-2);">${o.qty}</td>
+        <td style="padding:6px 8px 6px 0;color:var(--text-3);">${(o.type || '').replace('OrderType.','')}</td>
+        <td style="padding:6px 8px 6px 0;color:var(--amber);">${(o.status || '').replace('OrderStatus.','')}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  if (html !== _lastOrdersHTML) { el.innerHTML = html; _lastOrdersHTML = html; }
+}
+
+let _lastLeaderHTML = '';
+function renderStrategyLeaderboard() {
+  const lb = state.strategy_leaderboard || [];
+  const el = $('strategyLeaderboard');
+  if (!lb.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No trades today</div>';
+    if (_lastLeaderHTML !== empty) { el.innerHTML = empty; _lastLeaderHTML = empty; }
+    return;
+  }
+  const html = lb.map((s, i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <span style="color:var(--text-1);">${medal} ${s.strategy}</span>
+      <span style="color:var(--text-3);">${s.trades} trades · ${fmt(s.volume)} vol</span>
+    </div>`;
+  }).join('');
+  if (html !== _lastLeaderHTML) { el.innerHTML = html; _lastLeaderHTML = html; }
+}
+
+let _lastExecHTML = '';
+function renderExecQuality() {
+  const eq = state.exec_quality || {};
+  const el = $('execQuality');
+  const recent = eq.recent || [];
+  if (!recent.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No recent fills</div>';
+    if (_lastExecHTML !== empty) { el.innerHTML = empty; _lastExecHTML = empty; }
+    return;
+  }
+  const html = `<div style="margin-bottom:8px;color:var(--text-2);">
+    ${eq.fills} fills · avg price $${(eq.avg_price || 0).toFixed(2)}
+  </div>` + recent.map(r => {
+    const side = (r.side || '').replace('OrderSide.','');
+    return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;">
+      <span style="color:${side.toLowerCase().includes('buy') ? 'var(--green)' : 'var(--red)'};">${side}</span>
+      <span style="color:var(--text-1);">${r.symbol}</span>
+      <span style="color:var(--text-3);">$${r.price.toFixed(2)}</span>
+    </div>`;
+  }).join('');
+  if (html !== _lastExecHTML) { el.innerHTML = html; _lastExecHTML = html; }
+}
+
+let _lastSentimentHTML = '';
+function renderNewsSentiment() {
+  const ns = state.news_sentiment || [];
+  const el = $('newsSentiment');
+  if (!ns.length) {
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;">No news</div>';
+    if (_lastSentimentHTML !== empty) { el.innerHTML = empty; _lastSentimentHTML = empty; }
+    return;
+  }
+  const html = ns.map(n => {
+    const s = n.sentiment || 0;
+    const color = s > 0.15 ? 'var(--green)' : s < -0.15 ? 'var(--red)' : 'var(--text-3)';
+    const label = s > 0.15 ? 'BULLISH' : s < -0.15 ? 'BEARISH' : 'NEUTRAL';
+    const symbols = n.symbols ? n.symbols.split(',').slice(0,3).join(', ') : '';
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:var(--text-1);flex:1;margin-right:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${n.headline}</span>
+        <span style="color:${color};font-size:11px;font-weight:600;white-space:nowrap;min-width:60px;text-align:right;">${label} ${(s * 100).toFixed(0)}%</span>
+      </div>
+      ${symbols ? `<div style="font-size:11px;color:var(--cyan);margin-top:2px;">${symbols}</div>` : ''}
+    </div>`;
+  }).join('');
+  if (html !== _lastSentimentHTML) { el.innerHTML = html; _lastSentimentHTML = html; }
+}
+
+// ── Notification Toasts ─────────────────────────────────────────
+
+let _lastNotifState = {};
+function checkNotifications() {
+  const tracker = state.options_tracker || [];
+  // Check for profit targets hit or stop losses
+  tracker.forEach(t => {
+    const key = t.symbol;
+    const prev = _lastNotifState[key] || {};
+    if (t.at_target && !prev.at_target) {
+      showToast(`✅ PROFIT TARGET: ${_formatOptionSymbol(t.symbol)} at +${t.profit_pct.toFixed(1)}%`, 'var(--green)');
+    }
+    if (t.at_stop && !prev.at_stop) {
+      showToast(`🛑 STOP LOSS: ${_formatOptionSymbol(t.symbol)} at ${t.profit_pct.toFixed(1)}%`, 'var(--red)');
+    }
+    _lastNotifState[key] = { at_target: t.at_target, at_stop: t.at_stop };
+  });
+  // EOD exit warning
+  const cd = state.countdown || {};
+  if (cd.mins_to_eod_exit != null && cd.mins_to_eod_exit <= 1 && cd.mins_to_eod_exit > 0) {
+    if (!_lastNotifState._eod_warned) {
+      showToast('⏰ EOD EXIT: Closing all options in < 1 minute', 'var(--amber)');
+      _lastNotifState._eod_warned = true;
+    }
+  } else {
+    _lastNotifState._eod_warned = false;
+  }
+}
+
+function showToast(message, color) {
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.style.cssText = `background:var(--bg-card);border:1px solid ${color};border-radius:var(--radius-sm);padding:12px 18px;color:${color};font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.4);opacity:0;transform:translateX(100px);transition:all 0.3s ease;max-width:350px;`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateX(0)'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(100px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 5000);
 }
 
 // ── Performance Tab Renders ──

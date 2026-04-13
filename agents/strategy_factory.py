@@ -443,8 +443,17 @@ def _evaluate_shadow_signals():
             continue
 
         # Get current/recent price for exit
+        # Options (long symbol): use underlying's price change as proxy
+        lookup_symbol = symbol
+        if len(symbol) > 10:
+            # Extract underlying from OCC format (e.g., TSLA260413C00362500 -> TSLA)
+            import re
+            m = re.match(r'^([A-Z]+)\d', symbol)
+            if m:
+                lookup_symbol = m.group(1)
+
         with shared.cache_lock:
-            hist = shared.historical_ohlcv.get(symbol, {})
+            hist = shared.historical_ohlcv.get(lookup_symbol, {})
         closes = hist.get("closes", []) if isinstance(hist, dict) else []
 
         if closes:
@@ -454,9 +463,9 @@ def _evaluate_shadow_signals():
 
         side = row.get("side", "buy")
         if side == "buy":
-            pnl = (exit_price - entry_price) / entry_price
+            pnl = (exit_price - entry_price) / entry_price if entry_price > 0 else 0
         else:
-            pnl = (entry_price - exit_price) / entry_price
+            pnl = (entry_price - exit_price) / entry_price if entry_price > 0 else 0
 
         database.update_shadow_signal(row["id"], exit_price, round(pnl, 6))
         evaluated += 1

@@ -39,7 +39,41 @@ def _empty_plan() -> dict:
         "symbols": {},
         "exclusions": [],
         "notes": [],
+        # per-plan risk params (None = use global default from settings.py)
+        "min_signal_confidence": None,
+        "conviction_curve": None,
+        "vix_ceiling": None,
+        "cash_floor_pct": None,
+        "watchlist_override": None,
     }
+
+
+def get_plan_risk_param(param_name: str, default=None):
+    """Read a per-plan risk parameter, falling back to settings.py global default."""
+    _DEFAULTS = {
+        "min_signal_confidence": settings.MIN_SIGNAL_CONFIDENCE,
+        "conviction_curve":      settings.CONVICTION_CURVE,
+        "vix_ceiling":           settings.VIX_CEILING,
+        "cash_floor_pct":        settings.CASH_FLOOR_PCT,
+        "watchlist_override":    None,
+    }
+    with shared.cache_lock:
+        plan = shared.investment_plan
+    if plan and isinstance(plan, dict):
+        val = plan.get(param_name)
+        if val is not None:
+            return val
+    return _DEFAULTS.get(param_name, default)
+
+
+def _shape_conviction(conviction: float) -> float:
+    """Apply conviction curve transformation for position sizing."""
+    curve = get_plan_risk_param("conviction_curve") or "linear"
+    if curve == "exponential":
+        return conviction ** 2
+    elif curve == "sqrt":
+        return math.sqrt(max(0.0, conviction))
+    return conviction  # linear = identity
 
 
 def load_plan() -> dict:
@@ -128,9 +162,11 @@ def _kelly_size(strategy: str, conviction: float) -> float:
     """
     score_row = get_strategy_score(strategy)
 
+    shaped = _shape_conviction(conviction)
+
     if not score_row or (score_row.get("trade_count") or 0) < 10:
         # Insufficient history — fall back to equal weighting
-        return min(conviction * 0.10, settings.MAX_PORTFOLIO_PCT)
+        return min(shaped * 0.10, settings.MAX_PORTFOLIO_PCT)
 
     win_rate = score_row.get("win_rate", 0.5)
     avg_pnl_pct = score_row.get("avg_pnl_pct", 0.0)
@@ -141,19 +177,19 @@ def _kelly_size(strategy: str, conviction: float) -> float:
     losses = [t for t in closed if (t.get("pnl") or 0) <= 0]
 
     if not wins or not losses:
-        return min(conviction * 0.10, settings.MAX_PORTFOLIO_PCT)
+        return min(shaped * 0.10, settings.MAX_PORTFOLIO_PCT)
 
     avg_win = sum(abs(t.get("pnl_pct", 0) or 0) for t in wins) / len(wins)
     avg_loss = sum(abs(t.get("pnl_pct", 0) or 0) for t in losses) / len(losses)
 
     if avg_win <= 0:
-        return min(conviction * 0.10, settings.MAX_PORTFOLIO_PCT)
+        return min(shaped * 0.10, settings.MAX_PORTFOLIO_PCT)
 
     # Kelly formula
     kelly_f = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
 
     # Half-Kelly for safety, scaled by conviction
-    kelly_f = max(0.0, kelly_f * 0.5) * conviction
+    kelly_f = max(0.0, kelly_f * 0.5) * shaped
 
     return min(kelly_f, settings.MAX_PORTFOLIO_PCT)
 
@@ -356,6 +392,11 @@ def _compute_stance(signals: list) -> str:
 
 
 def _apply_risk_constraints(plan: dict) -> dict:
+    # Enforce cash floor from per-plan risk params
+    cash_floor = get_plan_risk_param("cash_floor_pct")
+    if cash_floor is not None:
+        plan["cash_target_pct"] = max(plan["cash_target_pct"], cash_floor)
+
     max_pct = settings.MAX_PORTFOLIO_PCT
     for sym, entry in plan["symbols"].items():
         if entry["target_pct"] > max_pct:
@@ -399,6 +440,11 @@ def update_plan(signals: list, trigger: str = "signal_batch") -> dict:
         plan["cash_target_pct"] = 0.30
     else:
         plan["cash_target_pct"] = 0.35
+
+    # Enforce per-plan cash floor
+    cash_floor = get_plan_risk_param("cash_floor_pct")
+    if cash_floor is not None:
+        plan["cash_target_pct"] = max(plan["cash_target_pct"], cash_floor)
 
     new_exclusions = _check_corp_action_exclusions(plan, dirty_snapshot)
     for sym in new_exclusions:

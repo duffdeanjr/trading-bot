@@ -159,7 +159,8 @@ def init_db():
                 pnl_pct        REAL,
                 hold_duration_s INTEGER,
                 status         TEXT DEFAULT 'open',
-                market_context TEXT
+                market_context TEXT,
+                is_option      INTEGER DEFAULT 0
             );
 
             -- Strategy performance scores (rolling)
@@ -269,11 +270,15 @@ def init_db():
         conn.commit()
 
         # -- migrations for existing databases --
-        try:
-            conn.execute("ALTER TABLE outcomes ADD COLUMN market_context TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        for migration in [
+            "ALTER TABLE outcomes ADD COLUMN market_context TEXT",
+            "ALTER TABLE outcomes ADD COLUMN is_option INTEGER DEFAULT 0",
+        ]:
+            try:
+                conn.execute(migration)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     logger.info(f"database initialised: {settings.DB_PATH} (WAL mode)")
 
@@ -584,36 +589,36 @@ def read_option_chain_latest(underlying):
 
 # -- outcomes (trade entry/exit tracking for feedback loop) --
 
-def open_outcome(symbol, strategy, side, entry_price, entry_ts, qty, market_context=None):
+def open_outcome(symbol, strategy, side, entry_price, entry_ts, qty, market_context=None, is_option=False):
     """Record entry of a new trade.  market_context is an optional JSON string."""
     try:
         conn = get_connection()
         with _lock:
             conn.execute(
-                """INSERT INTO outcomes (symbol, strategy, side, entry_price, entry_ts, qty, status, market_context)
-                   VALUES (?,?,?,?,?,?,?,?)""",
+                """INSERT INTO outcomes (symbol, strategy, side, entry_price, entry_ts, qty, status, market_context, is_option)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
                 (symbol, strategy, side, entry_price, entry_ts, qty, "open",
-                 market_context)
+                 market_context, 1 if is_option else 0)
             )
             conn.commit()
     except Exception as e:
         logger.error(f"database: open_outcome failed: {e}")
 
 def close_outcome(symbol, strategy, exit_price, exit_ts):
-    """Close the oldest open outcome for a symbol+strategy, computing P&L."""
+    """Close the oldest open outcome for a symbol+strategy, computing P&L.
+    Options get 100x multiplier automatically."""
     try:
         conn = get_connection()
         with _lock:
             row = conn.execute(
-                """SELECT id, entry_price, entry_ts, qty, side FROM outcomes
+                """SELECT id, entry_price, entry_ts, qty, side, is_option FROM outcomes
                    WHERE symbol=? AND strategy=? AND status='open'
                    ORDER BY entry_ts ASC LIMIT 1""",
                 (symbol, strategy)
             ).fetchone()
             if not row:
-                # Try matching just by symbol (strategy may differ on exit)
                 row = conn.execute(
-                    """SELECT id, entry_price, entry_ts, qty, side FROM outcomes
+                    """SELECT id, entry_price, entry_ts, qty, side, is_option FROM outcomes
                        WHERE symbol=? AND status='open'
                        ORDER BY entry_ts ASC LIMIT 1""",
                     (symbol,)
@@ -624,11 +629,15 @@ def close_outcome(symbol, strategy, exit_price, exit_ts):
             entry_ts = row["entry_ts"]
             qty = row["qty"]
             side = row["side"]
+            # Options: detect from stored flag or symbol length
+            is_opt = row["is_option"] if "is_option" in row.keys() else (len(symbol) > 10)
+            multiplier = 100 if is_opt else 1
             if side == "buy":
-                pnl = (exit_price - entry_price) * qty
+                pnl = (exit_price - entry_price) * qty * multiplier
             else:
-                pnl = (entry_price - exit_price) * qty
-            pnl_pct = pnl / (entry_price * qty) if entry_price * qty > 0 else 0
+                pnl = (entry_price - exit_price) * qty * multiplier
+            notional = entry_price * qty * multiplier
+            pnl_pct = pnl / notional if notional > 0 else 0
             try:
                 hold_s = int((datetime.datetime.fromisoformat(str(exit_ts))
                               - datetime.datetime.fromisoformat(str(entry_ts))).total_seconds())

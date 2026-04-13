@@ -2,7 +2,7 @@ import os
 import logging
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # ── credentials ───────────────────────────────────────────────
 APCA_KEY    = os.getenv("APCA_API_KEY_ID", "")
@@ -33,15 +33,18 @@ DATA_FEED = "iex"       # "iex" (free) | "sip" (Algo Trader Plus, $99/mo)
 # ── database (decision: SQLite) ───────────────────────────────
 DB_PATH = "trading.db"  # swap to postgres:// URI to migrate later
 
-# ── downloads ─────────────────────────────────────────────────
-# Single folder for all data files fetched by ref_library.
-# Subfolders: historical_bars/ | news/ | options/ | corporate_actions/
-DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downloads")
-
 # ── options (decision: Level 3) ───────────────────────────────
 OPTIONS_LEVEL    = 3     # 1 | 2 | 3 — must match Alpaca account approval
 OPTIONS_ENABLED  = True  # master kill-switch for all options orders
-EXPIRY_WARN_DAYS = 2     # flag short options this many days before expiry
+EXPIRY_WARN_DAYS = 0     # allow 0DTE day trading
+
+# ── options day trading ──────────────────────────────────────
+OPTIONS_DAYTRADE      = True   # enable 0DTE / short-DTE day trading mode
+OPTIONS_PROFIT_TARGET = 0.50   # close at 50% of max profit
+OPTIONS_STOP_LOSS     = 2.0    # close at 2x collected premium
+OPTIONS_EOD_EXIT_MINS = 15     # close all options positions N min before close
+OPTIONS_WING_WIDTH    = 0.03   # 3% wing width for iron condors
+OPTIONS_OTM_PCT       = 0.03   # 3% OTM for CSPs / covered calls
 
 # ── execution (decision: no VWAP/TWAP) ───────────────────────
 VWAP_TWAP = False        # requires Alpaca Elite Smart Router ($30k deposit)
@@ -81,6 +84,14 @@ DASHBOARD_PORT = 5050
 MARGIN_MIN_EQUITY    = 25000   # minimum equity to use margin (PDT rule)
 MAX_DAILY_LOSS_PCT   = 0.05    # circuit breaker: halt if down 5% in a day
 MAX_CONSECUTIVE_LOSSES = 5     # circuit breaker: halt after N straight losses
+DAILY_TARGET_PCT     = 0.01    # 1% daily profit target — lock gains when reached
+DAILY_TARGET_LOCK    = True    # stop opening new positions after hitting target
+
+# ── per-plan risk defaults (overridden by plan dict values) ──
+MIN_SIGNAL_CONFIDENCE = 0.0       # 0-1; signals below this dropped pre-plan
+CONVICTION_CURVE      = "linear"  # "linear" | "exponential" | "sqrt"
+VIX_CEILING           = None      # float or None; emergency liquidation trigger
+CASH_FLOOR_PCT        = 0.10      # 0-1; cash target never drops below this
 
 # ── signal thresholds ────────────────────────────────────────
 RSI_OVERSOLD  = 30.0

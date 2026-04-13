@@ -1,11 +1,14 @@
 import os
 import json
+import logging
 import sqlite3
 import time
 import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = os.path.join(_BASE, "dashboard.html")
@@ -26,28 +29,46 @@ def _get_market_open():
         return getattr(shared, "MARKET_OPEN", False) if HAS_BOT else False
 
 def _get_stream_health():
-    """Return real stream heartbeat data from alpaca_local.stream."""
+    """Read stream health from file written by diagnostics agent (cross-process safe)."""
     now = time.time()
     names = ["trade", "stock", "crypto", "option", "news"]
-    result = {}
-    hb = {}
-    rc = {}
+    health_path = os.path.join(_BASE, ".stream_health.json")
     try:
-        from alpaca_local import stream as st
-        hb = st.get_heartbeats()
-        rc = st.get_reconnect_counts()
+        with open(health_path, "r") as f:
+            data = json.load(f)
+        result = {}
+        for name in names:
+            info = data.get(name, {})
+            ts = info.get("last_heartbeat", 0)
+            age = round(now - ts, 1) if ts > 0 else None
+            connected = info.get("connected", False)
+            # Derive status from data if diagnostics hasn't written it yet
+            if "status" in info:
+                status = info["status"]
+            elif name == "option":
+                status = "disabled"  # we don't subscribe to options stream
+            elif name == "trade" and ts > 0:
+                status = "active" if (now - ts) < 600 else "idle"
+            elif connected:
+                status = "active"
+            else:
+                status = "waiting"
+            # Trade stream: consider connected if it ever received data (fills are infrequent)
+            if name == "trade" and ts > 0:
+                connected = True
+            # Options stream: always show as OK (intentionally disabled)
+            if name == "option":
+                connected = True
+            result[name] = {
+                "last_msg_age": age,
+                "reconnects": info.get("reconnects", 0),
+                "connected": connected,
+                "status": status,
+            }
+        return result
     except Exception:
-        pass
-    for name in names:
-        ts = hb.get(name, 0)
-        age = round(now - ts, 1) if ts > 0 else None
-        reconnects = rc.get(name, 0)
-        result[name] = {
-            "last_msg_age": age,
-            "reconnects": reconnects,
-            "connected": ts > 0,
-        }
-    return result
+        return {name: {"last_msg_age": None, "reconnects": 0, "connected": False, "status": "unknown"}
+                for name in names}
 
 def _db_path():
     p = settings.DB_PATH
@@ -73,52 +94,82 @@ def query_one(sql, params=()):
     finally:
         conn.close()
 
-def api_data():
-    trades_summary = query_one("SELECT COUNT(*) as n, SUM(notional) as vol FROM trades")
-    positions = query("""
-        SELECT symbol, MAX(ts) as ts, qty, avg_cost, market_val, unrealised, asset_class
-        FROM positions GROUP BY symbol ORDER BY ABS(COALESCE(market_val,0)) DESC LIMIT 20
-    """)
-    recent_trades = query("SELECT ts,symbol,side,qty,price,notional,strategy_tag FROM trades ORDER BY ts DESC LIMIT 20")
-    plan_row = query_one("SELECT plan_json, summary, trigger, ts FROM investment_plans ORDER BY version DESC LIMIT 1")
-    errors = query("SELECT agent,level,message,ts FROM agent_logs WHERE level IN ('ERROR','WARNING') ORDER BY ts DESC LIMIT 20")
-    signals = query("SELECT ts,symbol,strategy,side,confidence,sentiment FROM signals ORDER BY ts DESC LIMIT 20")
-    outcomes = query("SELECT symbol,strategy,side,pnl,pnl_pct,status FROM outcomes ORDER BY COALESCE(exit_ts, entry_ts) DESC LIMIT 20")
-    scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
-    strategy_attribution = query("""
-        SELECT strategy,
-               date(exit_ts, 'unixepoch') as day,
-               SUM(pnl) as total_pnl,
-               COUNT(*) as trade_count
-        FROM outcomes
-        WHERE status = 'closed' AND pnl IS NOT NULL AND exit_ts IS NOT NULL
-        GROUP BY strategy, day
-        ORDER BY day ASC
-    """)
-    plan_history = query("SELECT version, ts, trigger, summary FROM investment_plans ORDER BY version DESC LIMIT 10")
+_acct_cache = {"data": {}, "ts": 0}
 
-    # News articles (today + recent)
-    news_articles = query("""SELECT headline, summary, symbols, source, ts
-        FROM news ORDER BY ts DESC LIMIT 50""")
+def _fetch_alpaca_account():
+    """Single Alpaca account call, cached 10s. Returns full account dict."""
+    now = time.time()
+    if now - _acct_cache["ts"] < 10 and _acct_cache["data"]:
+        return _acct_cache["data"]
+    try:
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        r = _req.get(f'{settings.BASE_URL}/v2/account', headers=headers, timeout=5)
+        if r.status_code == 200:
+            _acct_cache["data"] = r.json()
+            _acct_cache["ts"] = now
+    except Exception:
+        pass
+    return _acct_cache["data"]
 
-    # Screener activity
-    screener_recent = query("""SELECT symbol, score, reasons, promoted, ts
-        FROM screener_scores ORDER BY ts DESC LIMIT 30""")
 
-    # Options trades
-    options_trades = query("""SELECT ts,symbol,side,qty,price,notional,strategy_tag
-        FROM trades WHERE length(symbol) > 10
-        OR strategy_tag IN ('iron_condor','covered_call','cash_secured_put','calendar_spread')
-        ORDER BY ts DESC LIMIT 20""")
+def _get_agent_status():
+    """Build agent health status from shared state."""
+    if not HAS_BOT:
+        return []
+    try:
+        with shared.errors_lock:
+            errors_snap = dict(shared.AGENT_ERRORS)
+    except Exception:
+        errors_snap = {}
+    agent_names = ["ref_library", "account_agent", "signal_generator",
+                   "plan_manager", "order_execution", "risk_manager",
+                   "boss", "diagnostics", "screener", "walk_forward",
+                   "plan_reviewer", "strategy_factory", "bandit_harvester"]
+    now = time.time()
+    result = []
+    for name in agent_names:
+        info = errors_snap.get(name, {})
+        try:
+            hb_ts = getattr(shared, 'AGENT_HEARTBEATS', {}).get(name, 0)
+        except Exception:
+            hb_ts = 0
+        hb_age = round(now - hb_ts, 1) if hb_ts > 0 else None
+        status = "running"
+        if info.get("count", 0) > 0:
+            status = "error"
+        elif hb_ts > 0 and (now - hb_ts) > 120:
+            status = "stale"
+        result.append({
+            "name": name, "status": status,
+            "restarts": info.get("count", 0),
+            "last_error": info.get("last_error"),
+            "heartbeat_age_s": hb_age,
+        })
+    return result
 
-    # Rejections from agent logs
-    rejections = query("""SELECT ts, message FROM agent_logs
-        WHERE message LIKE '%risk veto%' OR message LIKE '%order 422%'
-        OR message LIKE '%insufficient%' OR message LIKE '%BLOCKED%'
-        ORDER BY ts DESC LIMIT 30""")
 
-    # Portfolio history from Alpaca
-    portfolio_history_data = []
+def _get_heat_and_pause():
+    """Return heat status dict and trading_paused flag."""
+    if not HAS_BOT:
+        return {}, False
+    heat_status = {}
+    try:
+        from agents import risk_manager
+        heat_status = risk_manager.get_heat_status()
+    except Exception:
+        pass
+    trading_paused = getattr(shared, "trading_paused", False)
+    return heat_status, trading_paused
+
+
+_ph_cache = {"data": [], "ts": 0}
+
+def _get_portfolio_history():
+    """Fetch portfolio equity history. Cached 5 minutes (slow API, rarely changes)."""
+    now = time.time()
+    if now - _ph_cache["ts"] < 300 and _ph_cache["data"]:
+        return _ph_cache["data"]
     try:
         import requests as _req
         _headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
@@ -129,105 +180,33 @@ def api_data():
             _ts = _ph.get('timestamp', [])
             _eq = _ph.get('equity', [])
             _pnl = _ph.get('profit_loss', [])
-            portfolio_history_data = [
+            _ph_cache["data"] = [
                 {"ts": _ts[i], "equity": _eq[i], "pnl": _pnl[i] if i < len(_pnl) else 0}
                 for i in range(len(_ts)) if _eq[i] and _eq[i] > 0
             ]
+            _ph_cache["ts"] = now
     except Exception:
         pass
+    return _ph_cache["data"]
 
-    plan_data = {}
-    if plan_row and plan_row.get("plan_json"):
-        try:
-            plan_data = json.loads(plan_row["plan_json"])
-        except Exception:
-            pass
 
-    account_data = {}
-    agent_status = []
-    trading_paused = False
-    heat_status = {}
+def _plan_risk(param_name, default):
+    """Read a per-plan risk param from the latest plan in DB, with global fallback."""
+    try:
+        row = query_one("SELECT plan_json FROM investment_plans ORDER BY version DESC LIMIT 1")
+        if row and row.get("plan_json"):
+            plan = json.loads(row["plan_json"])
+            val = plan.get(param_name)
+            if val is not None:
+                return val
+    except Exception:
+        pass
+    return default
 
-    if HAS_BOT:
-        # Account — pull directly from Alpaca (dashboard is a separate process)
-        try:
-            from alpaca_local import client as alpaca
-            acct = alpaca.get_account()
-            if acct:
-                for key in ("portfolio_value", "buying_power", "cash", "equity",
-                            "last_equity", "long_market_value", "short_market_value"):
-                    val = getattr(acct, key, None)
-                    if val is not None:
-                        account_data[key] = str(val)
-        except Exception:
-            pass
 
-        # Agent health
-        try:
-            with shared.errors_lock:
-                errors_snap = dict(shared.AGENT_ERRORS)
-        except Exception:
-            errors_snap = {}
-        agent_names = ["ref_library", "account_agent", "signal_generator",
-                       "plan_manager", "order_execution", "risk_manager",
-                       "boss", "diagnostics", "screener", "walk_forward",
-                       "plan_reviewer", "strategy_factory", "bandit_harvester"]
-        now = time.time()
-        for name in agent_names:
-            info = errors_snap.get(name, {})
-            try:
-                hb_ts = getattr(shared, 'AGENT_HEARTBEATS', {}).get(name, 0)
-            except Exception:
-                hb_ts = 0
-            hb_age = round(now - hb_ts, 1) if hb_ts > 0 else None
-            status = "running"
-            if info.get("count", 0) > 0:
-                status = "error"
-            elif hb_ts > 0 and (now - hb_ts) > 120:
-                status = "stale"
-            agent_status.append({
-                "name": name,
-                "status": status,
-                "restarts": info.get("count", 0),
-                "last_error": info.get("last_error"),
-                "heartbeat_age_s": hb_age,
-            })
-
-        # Heat status
-        try:
-            from agents import risk_manager
-            heat_status = risk_manager.get_heat_status()
-        except Exception:
-            heat_status = {}
-
-        # Trading paused flag
-        trading_paused = getattr(shared, "trading_paused", False)
-
-    # Allocation breakdown
-    allocation = {}
-    total_mv = 0
-    for p in positions:
-        ac = p.get("asset_class") or "unknown"
-        mv = abs(float(p.get("market_val") or 0))
-        allocation[ac] = allocation.get(ac, 0) + mv
-        total_mv += mv
-    allocation_pct = {k: round(v / total_mv * 100, 1) if total_mv > 0 else 0
-                      for k, v in allocation.items()}
-
-    # Concentration risk
-    equity = float(account_data.get("equity", 0) or 0)
-    max_conc = 0
-    max_conc_sym = ""
-    for p in positions:
-        mv = abs(float(p.get("market_val") or 0))
-        if equity > 0:
-            pct = mv / equity
-            if pct > max_conc:
-                max_conc = pct
-                max_conc_sym = p.get("symbol", "")
-
-    # Current parameters snapshot
-    params = {
+def _get_parameters():
+    """Snapshot of all tunable settings for the dashboard."""
+    return {
         "max_position_size":   settings.MAX_POSITION_SIZE,
         "max_portfolio_pct":   settings.MAX_PORTFOLIO_PCT * 100,
         "margin_min_equity":   settings.MARGIN_MIN_EQUITY,
@@ -251,7 +230,406 @@ def api_data():
         "dry_run":             settings.DRY_RUN,
         "tick_interval":       settings.TICK_INTERVAL,
         "data_feed":           settings.DATA_FEED,
+        "options_daytrade":    settings.OPTIONS_DAYTRADE,
+        "options_profit_target": settings.OPTIONS_PROFIT_TARGET * 100,
+        "options_stop_loss":   settings.OPTIONS_STOP_LOSS * 100,
+        "options_eod_exit_mins": settings.OPTIONS_EOD_EXIT_MINS,
+        "options_wing_width":  settings.OPTIONS_WING_WIDTH * 100,
+        "options_otm_pct":     settings.OPTIONS_OTM_PCT * 100,
+        "daily_target_pct":    settings.DAILY_TARGET_PCT * 100,
+        "daily_target_lock":   settings.DAILY_TARGET_LOCK,
+        # per-plan risk params (read from plan, fallback to global)
+        "min_signal_confidence": _plan_risk("min_signal_confidence", settings.MIN_SIGNAL_CONFIDENCE),
+        "conviction_curve":      _plan_risk("conviction_curve", settings.CONVICTION_CURVE),
+        "vix_ceiling":           _plan_risk("vix_ceiling", None),
+        "cash_floor_pct":        round((_plan_risk("cash_floor_pct", settings.CASH_FLOOR_PCT) or 0) * 100, 1),
+        "watchlist_override":    _plan_risk("watchlist_override", None),
     }
+
+
+def _get_daily_target():
+    """Daily P&L progress toward 1% target from cached account data."""
+    acct = _acct_cache.get("data", {})
+    equity = float(acct.get("equity", 0) or 0)
+    last_equity = float(acct.get("last_equity", 0) or 0)
+    if last_equity <= 0 or equity <= 0:
+        return {"pnl_pct": 0, "pnl_dollar": 0, "target_pct": settings.DAILY_TARGET_PCT * 100,
+                "target_dollar": 0, "progress_pct": 0, "locked": False}
+    pnl = equity - last_equity
+    pnl_pct = pnl / last_equity
+    target_dollar = last_equity * settings.DAILY_TARGET_PCT
+    progress = min(pnl_pct / settings.DAILY_TARGET_PCT * 100, 100) if settings.DAILY_TARGET_PCT > 0 else 0
+    return {
+        "pnl_pct": round(pnl_pct * 100, 3),
+        "pnl_dollar": round(pnl, 2),
+        "target_pct": round(settings.DAILY_TARGET_PCT * 100, 1),
+        "target_dollar": round(target_dollar, 2),
+        "progress_pct": round(max(0, progress), 1),
+        "locked": False,  # Can't check bot state from dashboard process
+    }
+
+
+def _get_options_pnl(positions):
+    """Separate P&L for options positions only."""
+    total_cost = 0
+    total_mkt = 0
+    total_pnl = 0
+    count = 0
+    for p in positions:
+        sym = p.get("symbol", "")
+        if len(sym) <= 10:
+            continue
+        cost = float(p.get("avg_cost") or 0) * abs(float(p.get("qty") or 0)) * 100
+        mkt = float(p.get("market_val") or 0)
+        pnl = float(p.get("unrealised") or 0)
+        total_cost += cost
+        total_mkt += mkt
+        total_pnl += pnl
+        count += 1
+    return {
+        "count": count,
+        "total_cost": round(total_cost, 2),
+        "total_market_value": round(total_mkt, 2),
+        "unrealized_pnl": round(total_pnl, 2),
+    }
+
+
+_countdown_cache = {"data": None, "ts": 0}
+
+def _get_countdown():
+    """Time until market close and EOD exit. Cached for 30s."""
+    now_ts = time.time()
+    if now_ts - _countdown_cache["ts"] < 30 and _countdown_cache["data"]:
+        # Update mins from cached close_time
+        cd = dict(_countdown_cache["data"])
+        if cd.get("close_time"):
+            import datetime
+            close = datetime.datetime.fromisoformat(cd["close_time"])
+            now = datetime.datetime.now(close.tzinfo)
+            mins = max(0, (close - now).total_seconds() / 60)
+            cd["mins_to_close"] = round(mins, 1)
+            cd["mins_to_eod_exit"] = round(max(0, mins - settings.OPTIONS_EOD_EXIT_MINS), 1)
+        return cd
+    try:
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        r = _req.get(f'{settings.BASE_URL}/v2/clock', headers=headers, timeout=5)
+        if r.status_code == 200:
+            import datetime
+            data = r.json()
+            close_str = data.get("next_close", "")
+            is_open = data.get("is_open", False)
+            if close_str:
+                close = datetime.datetime.fromisoformat(close_str)
+                now = datetime.datetime.now(close.tzinfo)
+                mins = max(0, (close - now).total_seconds() / 60)
+                result = {
+                    "mins_to_close": round(mins, 1),
+                    "mins_to_eod_exit": round(max(0, mins - settings.OPTIONS_EOD_EXIT_MINS), 1),
+                    "close_time": close_str,
+                    "is_open": is_open,
+                }
+                _countdown_cache["data"] = result
+                _countdown_cache["ts"] = now_ts
+                return result
+    except Exception:
+        pass
+    return {"mins_to_close": None, "mins_to_eod_exit": None, "close_time": None, "is_open": False}
+
+
+def _get_options_tracker(positions):
+    """Profit target / stop loss progress for each options position."""
+    result = []
+    for p in positions:
+        sym = p.get("symbol", "")
+        if len(sym) <= 10:
+            continue
+        qty = float(p.get("qty") or 0)
+        # Options: avg_cost is per-share, multiply by 100 for per-contract cost
+        avg_cost = float(p.get("avg_cost") or 0)
+        entry_cost = abs(avg_cost) * abs(qty) * 100  # 100x multiplier for options
+        mkt = float(p.get("market_val") or 0)
+        current_value = abs(mkt)
+
+        if entry_cost < 1:
+            # Entry at $0 (e.g., filled at $0.00) — use current value as basis
+            # or skip if both are zero
+            if current_value < 1:
+                continue
+            entry_cost = current_value  # show 0% profit
+
+        if qty < 0:
+            # Short: profit when current_value < entry_cost
+            profit_pct = 1.0 - (current_value / entry_cost) if entry_cost > 0 else 0
+        else:
+            # Long: profit when current_value > entry_cost
+            profit_pct = (current_value - entry_cost) / entry_cost if entry_cost > 0 else 0
+
+        # Clamp to reasonable range
+        profit_pct = max(-10.0, min(10.0, profit_pct))
+
+        result.append({
+            "symbol": sym,
+            "qty": qty,
+            "entry_credit": round(entry_cost, 2),
+            "current_value": round(current_value, 2),
+            "profit_pct": round(profit_pct * 100, 1),
+            "target_pct": settings.OPTIONS_PROFIT_TARGET * 100,
+            "stop_pct": settings.OPTIONS_STOP_LOSS * 100,
+            "at_target": profit_pct >= settings.OPTIONS_PROFIT_TARGET,
+            "at_stop": profit_pct <= -settings.OPTIONS_STOP_LOSS,
+        })
+    return result
+
+
+_iv_cache = {"data": [], "ts": 0}
+
+def _get_iv_regime_map():
+    """Current IV/IVR for each watchlist symbol. Cached for 60s (chain lookups are slow)."""
+    now = time.time()
+    if now - _iv_cache["ts"] < 60 and _iv_cache["data"]:
+        return _iv_cache["data"]
+    result = []
+    try:
+        wl = list(getattr(shared, 'watchlist', []) or []) if HAS_BOT else []
+        # Read from the signal generator's latest IV data (already computed in-process)
+        for sym in wl:
+            if "/" in sym:
+                continue
+            # Pull from the signals table instead of recomputing IV (fast DB read)
+            row = query_one("""SELECT confidence, sentiment, raw FROM signals
+                WHERE symbol=? ORDER BY ts DESC LIMIT 1""", (sym,))
+            result.append({
+                "symbol": sym,
+                "iv": 0,
+                "ivr": None,
+                "regime": "unknown",
+                "strategy": row.get("raw", "").split("strategy': '")[1].split("'")[0] if "strategy'" in (row.get("raw") or "") else "none",
+            })
+    except Exception:
+        pass
+    _iv_cache["data"] = result
+    _iv_cache["ts"] = now
+    return result
+
+
+_orders_cache = {"data": [], "ts": 0}
+
+def _get_open_orders():
+    """Fetch current open orders from Alpaca REST API. Cached 15s."""
+    now = time.time()
+    if now - _orders_cache["ts"] < 15 and _orders_cache["data"] is not None:
+        return _orders_cache["data"]
+    try:
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        r = _req.get(f'{settings.BASE_URL}/v2/orders?status=open', headers=headers, timeout=5)
+        if r.status_code == 200:
+            _orders_cache["data"] = [{
+                "symbol": o.get("symbol") or "mleg",
+                "side": o.get("side", ""),
+                "qty": str(o.get("qty", "")),
+                "type": o.get("order_type", ""),
+                "status": o.get("status", ""),
+                "submitted_at": o.get("submitted_at"),
+                "client_order_id": o.get("client_order_id", ""),
+            } for o in r.json()]
+            _orders_cache["ts"] = now
+            return _orders_cache["data"]
+    except Exception:
+        pass
+    return _orders_cache.get("data", [])
+
+
+
+
+def _get_cash_flow():
+    """Premium collected vs paid from recent options trades."""
+    rows = query("""
+        SELECT side, SUM(notional) as total, COUNT(*) as n
+        FROM trades
+        WHERE (length(symbol) > 10 OR strategy_tag IN ('iron_condor','covered_call','cash_secured_put','calendar_spread'))
+        AND ts > ?
+        GROUP BY side
+    """, (time.time() - 86400,))
+    collected = 0
+    paid = 0
+    for r in rows:
+        side = r.get("side", "")
+        total = abs(float(r.get("total") or 0))
+        if "sell" in side.lower():
+            collected += total
+        else:
+            paid += total
+    return {
+        "collected": round(collected, 2),
+        "paid": round(paid, 2),
+        "net": round(collected - paid, 2),
+    }
+
+
+def _get_execution_quality():
+    """Slippage analysis on recent fills."""
+    rows = query("""
+        SELECT symbol, side, price, notional, strategy_tag, ts
+        FROM trades ORDER BY ts DESC LIMIT 50
+    """)
+    if not rows:
+        return {"avg_slippage_pct": 0, "fills": 0}
+    fills_with_price = [r for r in rows if float(r.get("price") or 0) > 0]
+    return {
+        "fills": len(fills_with_price),
+        "avg_price": round(sum(float(r["price"]) for r in fills_with_price) / len(fills_with_price), 2) if fills_with_price else 0,
+        "recent": [{
+            "symbol": r["symbol"], "side": r["side"],
+            "price": float(r["price"]), "ts": r["ts"],
+        } for r in fills_with_price[:10]],
+    }
+
+
+def _get_news_sentiment(news_articles):
+    """Return news with sentiment scores from signals table (pre-computed by bot)."""
+    # Don't load FinBERT here (slow, separate process). Use pre-computed sentiment from signals.
+    sentiment_map = {}
+    try:
+        rows = query("SELECT symbol, sentiment FROM signals WHERE sentiment IS NOT NULL ORDER BY ts DESC LIMIT 50")
+        for r in rows:
+            sym = r.get("symbol", "")
+            if sym and sym not in sentiment_map:
+                sentiment_map[sym] = float(r.get("sentiment") or 0)
+    except Exception:
+        pass
+    result = []
+    for article in (news_articles or [])[:20]:
+        headline = article.get("headline", "")
+        symbols_str = article.get("symbols", "")
+        # Match sentiment from signals for any symbol in the article
+        score = 0
+        if symbols_str:
+            for sym in symbols_str.split(","):
+                sym = sym.strip()
+                if sym in sentiment_map:
+                    score = sentiment_map[sym]
+                    break
+        result.append({
+            "headline": headline,
+            "symbols": symbols_str,
+            "sentiment": round(score, 3),
+            "ts": article.get("ts"),
+        })
+    return result
+
+
+def _get_strategy_leaderboard():
+    """Today's strategy performance from signals and outcomes."""
+    rows = query("""
+        SELECT strategy_tag as strategy, side,
+               COUNT(*) as trades, SUM(notional) as volume,
+               SUM(CASE WHEN price > 0 THEN 1 ELSE 0 END) as fills
+        FROM trades WHERE ts > ?
+        GROUP BY strategy_tag
+        ORDER BY trades DESC
+    """, (time.time() - 86400,))
+    return [{
+        "strategy": r.get("strategy", "unknown"),
+        "trades": r.get("trades", 0),
+        "volume": round(float(r.get("volume") or 0), 2),
+        "fills": r.get("fills", 0),
+    } for r in rows]
+
+
+def api_data():
+    trades_summary = query_one("SELECT COUNT(*) as n, SUM(notional) as vol FROM trades")
+    positions = query("""
+        SELECT p.symbol, p.ts, p.qty, p.avg_cost, p.market_val, p.unrealised, p.asset_class
+        FROM positions p
+        INNER JOIN (SELECT symbol, MAX(ts) as max_ts FROM positions GROUP BY symbol) latest
+            ON p.symbol = latest.symbol AND p.ts = latest.max_ts
+        WHERE p.qty != 0 AND p.ts > ?
+        ORDER BY ABS(COALESCE(p.market_val, 0)) DESC LIMIT 30
+    """, (time.time() - 300,))
+    recent_trades = query("SELECT ts,symbol,side,qty,price,notional,strategy_tag FROM trades ORDER BY ts DESC LIMIT 20")
+    plan_row = query_one("SELECT plan_json, summary, trigger, ts FROM investment_plans ORDER BY version DESC LIMIT 1")
+    errors = query("SELECT agent,level,message,ts FROM agent_logs WHERE level IN ('ERROR','WARNING') ORDER BY ts DESC LIMIT 20")
+    signals = query("SELECT ts,symbol,strategy,side,confidence,sentiment FROM signals ORDER BY ts DESC LIMIT 20")
+    outcomes = query("SELECT symbol,strategy,side,pnl,pnl_pct,status FROM outcomes ORDER BY COALESCE(exit_ts, entry_ts) DESC LIMIT 20")
+    scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
+    strategy_attribution = query("""
+        SELECT strategy, date(exit_ts, 'unixepoch') as day, SUM(pnl) as total_pnl, COUNT(*) as trade_count
+        FROM outcomes WHERE status = 'closed' AND pnl IS NOT NULL AND exit_ts IS NOT NULL
+        GROUP BY strategy, day ORDER BY day ASC
+    """)
+    plan_history = query("SELECT version, ts, trigger, summary FROM investment_plans ORDER BY version DESC LIMIT 10")
+    news_articles = query("SELECT headline, summary, symbols, source, ts FROM news ORDER BY ts DESC LIMIT 50")
+    screener_recent = query("SELECT symbol, score, reasons, promoted, ts FROM screener_scores ORDER BY ts DESC LIMIT 30")
+    options_trades = query("""SELECT ts,symbol,side,qty,price,notional,strategy_tag
+        FROM trades WHERE length(symbol) > 10
+        OR strategy_tag IN ('iron_condor','covered_call','cash_secured_put','calendar_spread')
+        ORDER BY ts DESC LIMIT 20""")
+    rejections = query("""SELECT ts, message FROM agent_logs
+        WHERE message LIKE '%risk veto%' OR message LIKE '%order 422%'
+        OR message LIKE '%insufficient%' OR message LIKE '%BLOCKED%'
+        ORDER BY ts DESC LIMIT 30""")
+
+    plan_data = {}
+    if plan_row and plan_row.get("plan_json"):
+        try:
+            plan_data = json.loads(plan_row["plan_json"])
+        except Exception:
+            pass
+
+    # Single Alpaca REST call for account + day trade data
+    _alpaca_acct = _fetch_alpaca_account()
+    account_data = {k: str(v) for k, v in _alpaca_acct.items()
+                    if k in ("portfolio_value","buying_power","cash","equity",
+                             "last_equity","long_market_value","short_market_value") and v is not None}
+
+    agent_status = _get_agent_status()
+    heat_status, trading_paused = _get_heat_and_pause()
+    daily_target = _get_daily_target()
+
+    # Fast local computations (no API calls)
+    options_pnl = _get_options_pnl(positions)
+    options_tracker = _get_options_tracker(positions)
+    cash_flow = _get_cash_flow()
+    exec_quality = _get_execution_quality()
+    news_sentiment = _get_news_sentiment(news_articles)
+    strategy_leaderboard = _get_strategy_leaderboard()
+    iv_map = _get_iv_regime_map()
+
+    # Derived from single account call
+    day_trade_count = {
+        "count": int(_alpaca_acct.get("daytrade_count", 0) or 0),
+        "limit": 3,
+        "pdt_restricted": _alpaca_acct.get("pattern_day_trader", False),
+        "equity": float(_alpaca_acct.get("equity", 0) or 0),
+        "pdt_threshold": 25000,
+    }
+
+    # Cached API calls (30-60s cache)
+    countdown = _get_countdown()
+    open_orders = _get_open_orders()
+
+    # Allocation breakdown
+    allocation = {}
+    total_mv = 0
+    for p in positions:
+        ac = p.get("asset_class") or "unknown"
+        mv = abs(float(p.get("market_val") or 0))
+        allocation[ac] = allocation.get(ac, 0) + mv
+        total_mv += mv
+    allocation_pct = {k: round(v / total_mv * 100, 1) if total_mv > 0 else 0
+                      for k, v in allocation.items()}
+
+    # Concentration risk
+    equity = float(account_data.get("equity", 0) or 0)
+    max_conc = 0
+    max_conc_sym = ""
+    for p in positions:
+        mv = abs(float(p.get("market_val") or 0))
+        if equity > 0 and mv / equity > max_conc:
+            max_conc = mv / equity
+            max_conc_sym = p.get("symbol", "")
 
     return {
         "total_trades":      trades_summary.get("n") or 0,
@@ -274,14 +652,25 @@ def api_data():
         "heat_status":       heat_status,
         "allocation":        allocation_pct,
         "concentration":     {"max_pct": round(max_conc * 100, 1), "symbol": max_conc_sym},
-        "parameters":        params,
-        "portfolio_history": portfolio_history_data,
+        "parameters":        _get_parameters(),
+        "portfolio_history": _get_portfolio_history(),
         "screener_activity": screener_recent,
         "options_trades":    options_trades,
         "live_heat":         round(total_mv / equity * 100, 1) if equity > 0 else 0,
         "rejections":        rejections,
         "news_articles":     news_articles,
         "stream_health":     _get_stream_health(),
+        "options_pnl":       options_pnl,
+        "countdown":         countdown,
+        "options_tracker":   options_tracker,
+        "iv_map":            iv_map,
+        "open_orders":       open_orders,
+        "day_trade_count":   day_trade_count,
+        "cash_flow":         cash_flow,
+        "exec_quality":      exec_quality,
+        "news_sentiment":    news_sentiment,
+        "strategy_leaderboard": strategy_leaderboard,
+        "daily_target": daily_target,
     }
 
 
@@ -511,6 +900,75 @@ def api_bandit():
     return result
 
 
+def exec_update_plan_risk(handler):
+    """Update per-plan risk parameters."""
+    data = _read_body(handler)
+    if not HAS_BOT:
+        _json_response(handler, {"error": "bot not running"}, 503)
+        return
+    VALID_CURVES = {"linear", "exponential", "sqrt"}
+    updates = {}
+    if "min_signal_confidence" in data:
+        v = float(data["min_signal_confidence"])
+        updates["min_signal_confidence"] = max(0.0, min(1.0, v))
+    if "conviction_curve" in data:
+        v = str(data["conviction_curve"]).lower()
+        if v in VALID_CURVES:
+            updates["conviction_curve"] = v
+    if "vix_ceiling" in data:
+        v = data["vix_ceiling"]
+        updates["vix_ceiling"] = float(v) if v is not None else None
+    if "cash_floor_pct" in data:
+        v = float(data["cash_floor_pct"])
+        if v > 1:
+            v = v / 100  # auto-convert percentage to fraction
+        updates["cash_floor_pct"] = max(0.0, min(1.0, v))
+    if "watchlist_override" in data:
+        v = data["watchlist_override"]
+        if isinstance(v, str):
+            v = [s.strip().upper() for s in v.split(",") if s.strip()] or None
+        elif isinstance(v, list):
+            v = [s.strip().upper() for s in v if s.strip()] or None
+        else:
+            v = None
+        updates["watchlist_override"] = v
+
+    if not updates:
+        _json_response(handler, {"error": "no valid params provided"}, 400)
+        return
+
+    # Read latest plan from DB (cross-process safe), merge updates, save back
+    plan = None
+    try:
+        row = query_one("SELECT plan_json FROM investment_plans ORDER BY version DESC LIMIT 1")
+        if row and row.get("plan_json"):
+            plan = json.loads(row["plan_json"])
+    except Exception:
+        pass
+    if not plan:
+        plan = {}
+
+    for k, v in updates.items():
+        plan[k] = v
+
+    # Update bot's in-memory plan if running in same process
+    if HAS_BOT:
+        with shared.cache_lock:
+            if shared.investment_plan and isinstance(shared.investment_plan, dict):
+                for k, v in updates.items():
+                    shared.investment_plan[k] = v
+
+    # Persist to DB
+    try:
+        from agents import plan_manager
+        plan_manager.save_plan(plan, trigger="dashboard_risk_edit",
+                               summary=f"Updated risk params: {list(updates.keys())}")
+    except Exception as e:
+        logger.error(f"plan risk update save failed: {e}")
+
+    _json_response(handler, {"ok": True, "updated": updates})
+
+
 POST_ROUTES = {
     "/api/exec/pause":           exec_pause,
     "/api/exec/resume":          exec_resume,
@@ -522,12 +980,20 @@ POST_ROUTES = {
     "/api/exec/plan":            exec_update_plan,
     "/api/exec/plan-rollback":   exec_rollback_plan,
     "/api/exec/parameters":      exec_update_parameters,
+    "/api/exec/plan-risk":       exec_update_plan_risk,
 }
 
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
+
+    def handle_one_request(self):
+        """Override to catch broken pipe / connection aborted errors."""
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass  # Client disconnected — ignore
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -548,7 +1014,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as e:
                 tb = traceback.format_exc()
-                print("API ERROR:", tb)
+                logger.error(f"API /api/data error:\n{tb}")
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(tb.encode())
@@ -562,7 +1028,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as e:
                 tb = traceback.format_exc()
-                print("BANDIT API ERROR:", tb)
+                logger.error(f"API /api/bandit error:\n{tb}")
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(tb.encode())
@@ -590,7 +1056,7 @@ class Handler(BaseHTTPRequestHandler):
                 handler_fn(self)
             except Exception as e:
                 tb = traceback.format_exc()
-                print(f"EXEC API ERROR [{path}]:", tb)
+                logger.error(f"API POST {path} error:\n{tb}")
                 _json_response(self, {"error": str(e)}, 500)
         else:
             self.send_response(404)

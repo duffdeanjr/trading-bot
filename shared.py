@@ -106,46 +106,15 @@ def get_positions_snapshot() -> dict:
         return dict(positions)
 
 
-def get_portfolio_history_snapshot():
-    """Return portfolio_history. Safe to read without lock."""
-    with account_lock:
-        return portfolio_history
-
-
 def get_plan_snapshot() -> dict:
-    """Return a copy of the current investment plan. Safe to read without lock."""
+    """Return a shallow copy of the investment plan dict."""
     with cache_lock:
         plan = investment_plan
     if plan is None:
         return {}
     if isinstance(plan, dict):
-        # Shallow copy is fine — plan values are immutable strings/numbers/lists
         return dict(plan)
     return plan
-
-
-def get_watchlist_snapshot() -> list:
-    """Return a copy of the watchlist. Safe to iterate without lock."""
-    with cache_lock:
-        return list(watchlist)
-
-
-def get_ohlcv_snapshot(symbol: str):
-    """Return OHLCV data for one symbol. Safe to read without lock."""
-    with cache_lock:
-        return historical_ohlcv.get(symbol, {})
-
-
-def get_dirty_symbols_snapshot() -> set:
-    """Return a copy of dirty_symbols. Safe to iterate without lock."""
-    with cache_lock:
-        return set(dirty_symbols)
-
-
-def get_agent_errors_snapshot() -> dict:
-    """Return a copy of AGENT_ERRORS. Safe to read without lock."""
-    with errors_lock:
-        return dict(AGENT_ERRORS)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -155,17 +124,6 @@ def get_agent_errors_snapshot() -> dict:
 def heartbeat(agent_name: str):
     """Record that an agent is alive. Call once per tick in each agent's main loop."""
     AGENT_HEARTBEATS[agent_name] = time.time()
-
-
-def get_stale_agents(timeout_s: float = 120.0) -> list:
-    """Return list of agent names that haven't heartbeated within timeout_s.
-    Called by diagnostics."""
-    now = time.time()
-    stale = []
-    for name, ts in AGENT_HEARTBEATS.items():
-        if (now - ts) > timeout_s:
-            stale.append((name, now - ts))
-    return stale
 
 
 # ─────────────────────────────────────────────────────────────

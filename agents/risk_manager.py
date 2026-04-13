@@ -82,6 +82,8 @@ def _check_options_level(strategy: str) -> tuple:
 
 # -- expiry watch --
 def _check_expiring_options():
+    if settings.OPTIONS_DAYTRADE:
+        return  # 0DTE positions are expected in day-trade mode
     warn_delta = datetime.timedelta(days=settings.EXPIRY_WARN_DAYS)
     today = datetime.date.today()
     with shared.positions_lock:
@@ -196,6 +198,72 @@ def get_heat_status() -> dict:
                            "caution" if vix >= settings.VIX_CAUTION else "normal",
     }
 
+
+def _check_vix_ceiling() -> bool:
+    """Return True if VIX has breached the per-plan vix_ceiling."""
+    from agents import plan_manager
+    ceiling = plan_manager.get_plan_risk_param("vix_ceiling")
+    if ceiling is None:
+        return False
+    with _heat_lock:
+        vix = _last_vix
+    return vix >= ceiling
+
+
+_vix_ceiling_triggered = False
+
+def _emergency_liquidate(reason: str):
+    """Cancel all orders, close all positions, set plan to 100% cash."""
+    logger.critical(f"risk_manager: EMERGENCY LIQUIDATION — {reason}")
+    try:
+        from alpaca_local import client as alpaca
+        alpaca.cancel_all_orders()
+        # Close all positions via REST
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        _req.delete(f'{settings.BASE_URL}/v2/positions', headers=headers, timeout=10)
+    except Exception as e:
+        logger.error(f"risk_manager: liquidation API error: {e}")
+    try:
+        from agents import plan_manager
+        with shared.cache_lock:
+            plan = shared.investment_plan
+        if plan and isinstance(plan, dict):
+            plan["symbols"] = {}
+            plan["cash_target_pct"] = 1.0
+            plan["stance"] = "risk-off"
+            plan["notes"] = (plan.get("notes", []) or []) + [f"EMERGENCY: {reason}"]
+            plan_manager.save_plan(plan, trigger="vix_ceiling_breach",
+                                   summary=f"Emergency liquidation: {reason}")
+    except Exception as e:
+        logger.error(f"risk_manager: plan update after liquidation failed: {e}")
+
+
+def get_daily_target_status() -> dict:
+    """Return daily P&L progress toward 1% target."""
+    with shared.account_lock:
+        acct = shared.account
+    if not acct:
+        return {"pnl_pct": 0, "pnl_dollar": 0, "target_pct": settings.DAILY_TARGET_PCT * 100,
+                "target_dollar": 0, "progress_pct": 0, "locked": False}
+    equity = float(getattr(acct, "equity", 0) or 0)
+    last_equity = float(getattr(acct, "last_equity", 0) or 0)
+    if last_equity <= 0:
+        return {"pnl_pct": 0, "pnl_dollar": 0, "target_pct": settings.DAILY_TARGET_PCT * 100,
+                "target_dollar": 0, "progress_pct": 0, "locked": False}
+    pnl = equity - last_equity
+    pnl_pct = pnl / last_equity
+    target_dollar = last_equity * settings.DAILY_TARGET_PCT
+    progress = min(pnl_pct / settings.DAILY_TARGET_PCT * 100, 100) if settings.DAILY_TARGET_PCT > 0 else 0
+    return {
+        "pnl_pct": round(pnl_pct * 100, 3),
+        "pnl_dollar": round(pnl, 2),
+        "target_pct": round(settings.DAILY_TARGET_PCT * 100, 1),
+        "target_dollar": round(target_dollar, 2),
+        "progress_pct": round(max(0, progress), 1),
+        "locked": _daily_target_locked,
+    }
+
 # -- portfolio heat veto --
 def _check_portfolio_heat(side: str) -> tuple:
     if side not in ("buy",):
@@ -211,22 +279,37 @@ MAX_CONSECUTIVE_LOSSES = int(getattr(settings, "MAX_CONSECUTIVE_LOSSES", 5))
 _circuit_breaker_tripped = False
 _circuit_breaker_ts = 0.0
 
+_daily_target_locked = False
+_daily_target_lock_ts = 0.0
+
 def _check_circuit_breaker() -> tuple:
-    """Halt trading if daily losses exceed threshold or too many consecutive losers."""
+    """Halt trading if daily losses exceed threshold, too many consecutive losers,
+    or daily profit target reached (lock in gains)."""
     global _circuit_breaker_tripped, _circuit_breaker_ts
+    global _daily_target_locked, _daily_target_lock_ts
 
     # Reset at start of each trading day
+    today = datetime.date.today().isoformat()
     if _circuit_breaker_tripped:
-        today = datetime.date.today().isoformat()
         if _circuit_breaker_ts > 0:
             tripped_date = datetime.datetime.fromtimestamp(_circuit_breaker_ts).date().isoformat()
             if tripped_date != today:
                 _circuit_breaker_tripped = False
                 _circuit_breaker_ts = 0.0
                 logger.info("risk: circuit breaker reset (new trading day)")
+    if _daily_target_locked:
+        if _daily_target_lock_ts > 0:
+            locked_date = datetime.datetime.fromtimestamp(_daily_target_lock_ts).date().isoformat()
+            if locked_date != today:
+                _daily_target_locked = False
+                _daily_target_lock_ts = 0.0
+                logger.info("risk: daily target lock reset (new trading day)")
 
     if _circuit_breaker_tripped:
         return False, "circuit breaker: trading halted for the day"
+
+    if _daily_target_locked:
+        return False, f"daily target reached: +{settings.DAILY_TARGET_PCT:.0%} — gains locked"
 
     # Check daily P&L from portfolio history
     with shared.account_lock:
@@ -236,6 +319,19 @@ def _check_circuit_breaker() -> tuple:
         last_equity = float(getattr(acct, "last_equity", 0) or 0)
         if last_equity > 0 and equity > 0:
             daily_pnl_pct = (equity - last_equity) / last_equity
+
+            # Daily profit target — lock in gains
+            if (settings.DAILY_TARGET_LOCK and
+                    daily_pnl_pct >= settings.DAILY_TARGET_PCT and
+                    not _daily_target_locked):
+                _daily_target_locked = True
+                _daily_target_lock_ts = time.time()
+                logger.info(f"risk: DAILY TARGET REACHED +{daily_pnl_pct:.2%} "
+                           f"(target: +{settings.DAILY_TARGET_PCT:.0%}) — locking gains, "
+                           f"no new positions until tomorrow")
+                return False, f"daily target reached: +{daily_pnl_pct:.2%}"
+
+            # Daily loss circuit breaker
             if daily_pnl_pct < -MAX_DAILY_LOSS_PCT:
                 _circuit_breaker_tripped = True
                 _circuit_breaker_ts = time.time()
@@ -278,11 +374,13 @@ def _check_naked_short(signal: dict) -> tuple:
     return True, ""
 
 def _check_options_expiry_risk(signal: dict) -> tuple:
-    """Block opening new option positions expiring within EXPIRY_WARN_DAYS."""
+    """Block opening new option positions expiring within EXPIRY_WARN_DAYS.
+    In day-trade mode (EXPIRY_WARN_DAYS=0), allows 0DTE."""
+    if settings.OPTIONS_DAYTRADE:
+        return True, ""  # day-trade mode allows all DTEs
     symbol = signal.get("symbol", "")
     if not symbol or len(symbol) < 10:
         return True, ""
-    # Check if this is an option symbol (OCC format)
     try:
         exp_str = symbol[len(symbol)-15:len(symbol)-9]  # extract YYMMDD from OCC
         exp_date = datetime.datetime.strptime(exp_str, "%y%m%d").date()
@@ -307,8 +405,8 @@ def _check_stop_loss(signal: dict) -> tuple:
 def _check_options_buying_power(signal: dict) -> tuple:
     """Check if we have enough options buying power for the trade."""
     strategy = signal.get("strategy", "")
-    options_strategies = {"iron_condor", "covered_call", "cash_secured_put", "calendar_spread"}
-    if strategy not in options_strategies:
+    options_open_strategies = {"iron_condor", "covered_call", "cash_secured_put", "calendar_spread"}
+    if strategy not in options_open_strategies or strategy == "options_exit":
         return True, ""
 
     with shared.account_lock:
@@ -339,14 +437,27 @@ def _check_options_buying_power(signal: dict) -> tuple:
                     strike = 0
         required = strike * 100 * qty
     elif strategy == "iron_condor":
-        # IC max loss = wing width × 100 × qty (approximate)
-        required = settings.MAX_POSITION_SIZE * 0.5 * qty
+        # IC max loss = wider wing width × 100 × qty
+        # Try to read actual max_loss from signal (set by options_strategies builder)
+        legs = signal.get("legs", [])
+        if legs and len(legs) >= 4:
+            try:
+                strikes = sorted(float(l.get("strike_price", 0) or 0) for l in legs if l.get("strike_price"))
+                if len(strikes) >= 2:
+                    wing_width = max(abs(strikes[-1] - strikes[-2]), abs(strikes[1] - strikes[0]))
+                    required = wing_width * 100 * qty
+                else:
+                    required = 2000 * qty  # conservative default
+            except Exception:
+                required = 2000 * qty
+        else:
+            # Estimate from wing width setting
+            required = settings.OPTIONS_WING_WIDTH * 100 * 100 * qty  # wing% × price(~$100) × 100
+            required = max(required, 500 * qty)  # at least $500 per contract
     elif strategy == "covered_call":
-        # Covered call: no additional capital needed (already hold shares)
-        return True, ""
+        return True, ""  # no additional capital needed
     elif strategy == "calendar_spread":
-        # Debit spread: max loss = net debit (estimate conservatively)
-        required = settings.MAX_POSITION_SIZE * 0.3 * qty
+        required = 500 * qty  # debit spread: ~$500 max per contract
     else:
         required = settings.MAX_POSITION_SIZE
 
@@ -364,15 +475,21 @@ def approve(signal: dict) -> tuple:
     """
     Returns (True, "") if signal is approved, (False, reason) if vetoed.
     Called by order_execution before submitting any order.
+    Position closes (options_exit, buy_to_close, sell_to_close) bypass
+    circuit breaker and daily target lock — you must always be able to exit.
     """
     symbol   = signal.get("symbol", "")
     side     = signal.get("side", "")
     notional = float(signal.get("notional", 0) or 0)
     strategy = signal.get("strategy", "")
     is_day   = signal.get("is_day_trade", False)
+    position_intent = signal.get("position_intent", "")
+
+    # Determine if this is a position close (should never be blocked)
+    is_close = (position_intent in ("buy_to_close", "sell_to_close")
+                or strategy == "options_exit")
 
     checks = [
-        _check_circuit_breaker(),
         _check_position_size(symbol, notional),
         _check_pdt(is_day),
         _check_dtmc(),
@@ -385,6 +502,15 @@ def approve(signal: dict) -> tuple:
         _check_portfolio_heat(side),
         _check_stop_loss(signal),
     ]
+
+    # Circuit breaker and VIX ceiling only block NEW positions, not closes
+    if not is_close:
+        checks.insert(0, _check_circuit_breaker())
+        if _check_vix_ceiling():
+            from agents import plan_manager
+            ceiling = plan_manager.get_plan_risk_param("vix_ceiling")
+            return False, f"VIX ceiling {ceiling} breached — all new orders blocked"
+
     for ok, reason in checks:
         if not ok:
             logger.warning(f"risk veto [{symbol}]: {reason}")
@@ -394,9 +520,22 @@ def approve(signal: dict) -> tuple:
 # -- main loop --
 @shared.register_agent("risk_manager", phase=7)
 def run():
+    global _vix_ceiling_triggered
     logger.info("risk_manager: starting")
     while not shared.SHUTTING_DOWN:
         shared.heartbeat("risk_manager")
         _check_expiring_options()
+
+        # VIX ceiling emergency liquidation
+        if _check_vix_ceiling():
+            if not _vix_ceiling_triggered:
+                _vix_ceiling_triggered = True
+                from agents import plan_manager
+                ceiling = plan_manager.get_plan_risk_param("vix_ceiling")
+                vix = get_last_vix()
+                _emergency_liquidate(f"VIX {vix:.1f} breached ceiling {ceiling}")
+        else:
+            _vix_ceiling_triggered = False
+
         time.sleep(settings.TICK_INTERVAL * 12)
     logger.info("risk_manager: SHUTTING_DOWN -> exiting")
