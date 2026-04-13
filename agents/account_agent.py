@@ -22,6 +22,9 @@ def _on_fill(event):
     try:
         order = event.order
         symbol = order.symbol
+        if not symbol:
+            logger.debug(f"account_agent: fill with no symbol (mleg partial fill), skipping")
+            return
         side   = str(order.side)
         qty    = float(order.filled_qty or 0)
         price  = float(order.filled_avg_price or 0)

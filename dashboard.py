@@ -26,28 +26,27 @@ def _get_market_open():
         return getattr(shared, "MARKET_OPEN", False) if HAS_BOT else False
 
 def _get_stream_health():
-    """Return real stream heartbeat data from alpaca_local.stream."""
+    """Read stream health from file written by diagnostics agent (cross-process safe)."""
     now = time.time()
     names = ["trade", "stock", "crypto", "option", "news"]
-    result = {}
-    hb = {}
-    rc = {}
+    health_path = os.path.join(_BASE, ".stream_health.json")
     try:
-        from alpaca_local import stream as st
-        hb = st.get_heartbeats()
-        rc = st.get_reconnect_counts()
+        with open(health_path, "r") as f:
+            data = json.load(f)
+        result = {}
+        for name in names:
+            info = data.get(name, {})
+            ts = info.get("last_heartbeat", 0)
+            age = round(now - ts, 1) if ts > 0 else None
+            result[name] = {
+                "last_msg_age": age,
+                "reconnects": info.get("reconnects", 0),
+                "connected": info.get("connected", False),
+            }
+        return result
     except Exception:
-        pass
-    for name in names:
-        ts = hb.get(name, 0)
-        age = round(now - ts, 1) if ts > 0 else None
-        reconnects = rc.get(name, 0)
-        result[name] = {
-            "last_msg_age": age,
-            "reconnects": reconnects,
-            "connected": ts > 0,
-        }
-    return result
+        return {name: {"last_msg_age": None, "reconnects": 0, "connected": False}
+                for name in names}
 
 def _db_path():
     p = settings.DB_PATH
@@ -76,9 +75,13 @@ def query_one(sql, params=()):
 def api_data():
     trades_summary = query_one("SELECT COUNT(*) as n, SUM(notional) as vol FROM trades")
     positions = query("""
-        SELECT symbol, MAX(ts) as ts, qty, avg_cost, market_val, unrealised, asset_class
-        FROM positions GROUP BY symbol ORDER BY ABS(COALESCE(market_val,0)) DESC LIMIT 20
-    """)
+        SELECT p.symbol, p.ts, p.qty, p.avg_cost, p.market_val, p.unrealised, p.asset_class
+        FROM positions p
+        INNER JOIN (SELECT symbol, MAX(ts) as max_ts FROM positions GROUP BY symbol) latest
+            ON p.symbol = latest.symbol AND p.ts = latest.max_ts
+        WHERE p.qty != 0 AND p.ts > ?
+        ORDER BY ABS(COALESCE(p.market_val, 0)) DESC LIMIT 30
+    """, (time.time() - 300,))
     recent_trades = query("SELECT ts,symbol,side,qty,price,notional,strategy_tag FROM trades ORDER BY ts DESC LIMIT 20")
     plan_row = query_one("SELECT plan_json, summary, trigger, ts FROM investment_plans ORDER BY version DESC LIMIT 1")
     errors = query("SELECT agent,level,message,ts FROM agent_logs WHERE level IN ('ERROR','WARNING') ORDER BY ts DESC LIMIT 20")
@@ -251,6 +254,12 @@ def api_data():
         "dry_run":             settings.DRY_RUN,
         "tick_interval":       settings.TICK_INTERVAL,
         "data_feed":           settings.DATA_FEED,
+        "options_daytrade":    settings.OPTIONS_DAYTRADE,
+        "options_profit_target": settings.OPTIONS_PROFIT_TARGET * 100,
+        "options_stop_loss":   settings.OPTIONS_STOP_LOSS * 100,
+        "options_eod_exit_mins": settings.OPTIONS_EOD_EXIT_MINS,
+        "options_wing_width":  settings.OPTIONS_WING_WIDTH * 100,
+        "options_otm_pct":     settings.OPTIONS_OTM_PCT * 100,
     }
 
     return {

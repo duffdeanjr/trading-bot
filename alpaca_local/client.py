@@ -140,7 +140,7 @@ def build_fractional_order(symbol, notional, side, **kwargs):
         time_in_force=tif, **kwargs
     )
 
-def build_mleg_order(legs, qty, limit_price, time_in_force=TimeInForce.DAY):
+def build_mleg_order(legs, qty, limit_price=None, time_in_force=TimeInForce.DAY):
     """Multi-leg options order (Level 3). Each leg: {symbol, side, ratio_qty, position_intent}."""
     if not settings.OPTIONS_ENABLED:
         raise ValueError("OPTIONS_ENABLED=False ? options orders are disabled")
@@ -148,13 +148,29 @@ def build_mleg_order(legs, qty, limit_price, time_in_force=TimeInForce.DAY):
         raise ValueError(f"Multi-leg orders require OPTIONS_LEVEL=3, current={settings.OPTIONS_LEVEL}")
     if settings.VWAP_TWAP:
         raise ValueError("VWAP_TWAP orders not supported ? requires Alpaca Elite Smart Router")
-    return {
+    order = {
         "order_class": "mleg",
         "qty": str(qty),
-        "type": "limit",
-        "limit_price": str(limit_price),
         "time_in_force": time_in_force,
         "legs": legs,
+    }
+    if limit_price is not None:
+        order["type"] = "limit"
+        order["limit_price"] = str(limit_price)
+    else:
+        order["type"] = "market"
+    return order
+
+def build_options_close_order(symbol, qty, side, position_intent="buy_to_close",
+                              time_in_force=TimeInForce.DAY):
+    """Build a raw REST order dict for closing an options position."""
+    return {
+        "symbol": symbol,
+        "qty": str(int(qty)),
+        "side": side,
+        "type": "market",
+        "time_in_force": time_in_force,
+        "position_intent": position_intent,
     }
 
 def submit_order(order_request):
@@ -174,7 +190,8 @@ def submit_order(order_request):
             },
             timeout=10,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(f"{resp.status_code} {resp.text}")
         return resp.json()
     return _client.submit_order(order_request)
 

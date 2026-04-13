@@ -1,4 +1,6 @@
 import time
+import json
+import os
 import logging
 import shared
 from config import settings
@@ -6,7 +8,9 @@ from alpaca_local import stream as alpaca_stream
 
 logger = logging.getLogger(__name__)
 
-_HEARTBEAT_TIMEOUT  = 60   # seconds ? alert if any stream silent for this long
+_HEARTBEAT_TIMEOUT    = 120  # seconds — alert if data streams silent for this long
+_TRADE_STREAM_TIMEOUT = 600  # trade stream is idle between fills — longer timeout
+_NEWS_STREAM_TIMEOUT  = 600  # news is bursty, long gaps between articles are normal
 _RECONNECT_FLAP_MAX = 5    # reconnects in _RECONNECT_WINDOW triggers alert
 _RECONNECT_WINDOW   = 3600 # seconds (1 hour)
 
@@ -20,8 +24,27 @@ def _check_stream_health():
     recons = alpaca_stream.get_reconnect_counts()
 
     for name, ts in beats.items():
-        if ts > 0 and (now - ts) > _HEARTBEAT_TIMEOUT:
+        timeout = (_TRADE_STREAM_TIMEOUT if name == "trade"
+                   else _NEWS_STREAM_TIMEOUT if name == "news"
+                   else _HEARTBEAT_TIMEOUT)
+        if ts > 0 and (now - ts) > timeout:
             logger.warning(f"diagnostics: stream '{name}' silent for {now-ts:.0f}s")
+
+    # Persist stream health to file for dashboard (cross-process)
+    try:
+        health = {}
+        for name in ("trade", "stock", "crypto", "option", "news"):
+            ts = beats.get(name, 0)
+            health[name] = {
+                "last_heartbeat": ts,
+                "reconnects": recons.get(name, 0),
+                "connected": ts > 0 and (now - ts) < 300,
+            }
+        health_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".stream_health.json")
+        with open(health_path, "w") as f:
+            json.dump(health, f)
+    except Exception:
+        pass
 
     # Reconnect flap detection (diagnostic improvement)
     global _reconnect_window_start, _last_reconnect_counts

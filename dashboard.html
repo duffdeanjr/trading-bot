@@ -361,15 +361,26 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Positions / Signals+Agents -->
+    <!-- Positions (Stocks + Options) / Signals+Agents -->
     <div class="grid-3-2">
-      <div class="card">
-        <div class="card-label">Positions</div>
-        <div class="scroll-y">
-          <table class="pos-table">
-            <thead><tr><th>Symbol</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
-            <tbody id="positionsBody"></tbody>
-          </table>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="card">
+          <div class="card-label">Stock positions</div>
+          <div class="scroll-y">
+            <table class="pos-table">
+              <thead><tr><th>Symbol</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
+              <tbody id="stockPositionsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-label">Options positions</div>
+          <div class="scroll-y">
+            <table class="pos-table">
+              <thead><tr><th>Contract</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
+              <tbody id="optionsPositionsBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
       <div class="card">
@@ -1213,52 +1224,104 @@ function render() {
 //  RENDER FUNCTIONS
 // ══════════════════════════════════════════════════════════════════
 
+let _lastAlertHTML = '';
 function renderAlerts(positions) {
   const alerts = [];
-  // Concentration check from pre-computed data
   const conc = state.concentration || {};
   if (conc.max_pct > 30) {
     alerts.push(`<span class="alert-label">Concentration warning:</span> <span class="alert-detail">${conc.symbol} is ${conc.max_pct.toFixed(1)}% of portfolio (limit: 15%)</span>`);
   }
-  // Agent crash check
   (state.agent_status || []).forEach(a => {
     if (a.status === 'error' || a.status === 'crashed') {
       alerts.push(`<span class="alert-label">Agent error:</span> <span class="alert-detail">${a.name} — ${a.last_error || 'unknown'}</span>`);
     }
   });
-  // Trading paused
   if (state.trading_paused) {
     alerts.push(`<span class="alert-label">Trading paused:</span> <span class="alert-detail">Order execution is halted</span>`);
   }
 
   const banner = $('alertBanner');
+  const html = alerts.join('<br>');
   if (alerts.length > 0) {
     banner.style.display = 'flex';
-    $('alertText').innerHTML = alerts.join('<br>');
+    if (html !== _lastAlertHTML) { $('alertText').innerHTML = html; _lastAlertHTML = html; }
   } else {
     banner.style.display = 'none';
+    _lastAlertHTML = '';
   }
 }
 
-function renderPositions(positions) {
-  const body = $('positionsBody');
-  if (!positions || positions.length === 0) {
-    body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-4);padding:20px;">No positions</td></tr>';
-    return;
+// Cache last rendered HTML to avoid unnecessary DOM thrash on hover
+let _lastStockHTML = '';
+let _lastOptHTML = '';
+let _stockSortOrder = [];
+let _optSortOrder = [];
+
+function _isOption(symbol) {
+  return symbol && symbol.length > 10;
+}
+
+function _formatOptionSymbol(symbol) {
+  // Parse OCC format: TSLA260413C00362500 -> TSLA 4/13 362.5C
+  try {
+    const m = symbol.match(/^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+    if (!m) return symbol;
+    const [, underlying, yy, mm, dd, type, strikeRaw] = m;
+    const strike = parseInt(strikeRaw) / 1000;
+    const strikeStr = strike % 1 === 0 ? strike.toFixed(0) : strike.toFixed(1);
+    return `${underlying} ${parseInt(mm)}/${parseInt(dd)} ${strikeStr}${type}`;
+  } catch { return symbol; }
+}
+
+function _renderTable(body, items, sortOrder, isOpt) {
+  const emptyMsg = isOpt ? 'No options positions' : 'No stock positions';
+  if (!items || items.length === 0) {
+    const empty = `<tr><td colspan="4" style="text-align:center;color:var(--text-4);padding:20px;">${emptyMsg}</td></tr>`;
+    return empty;
   }
-  // Sort by value descending
-  const sorted = [...positions].sort((a, b) => (b.market_value || 0) - (a.market_value || 0));
-  body.innerHTML = sorted.map(p => {
+  // Stable sort: only re-sort when symbols change
+  const currentSymbols = items.map(p => p.symbol).sort().join(',');
+  const cachedSymbols = sortOrder.map(s => s).sort().join(',');
+  if (currentSymbols !== cachedSymbols) {
+    sortOrder.length = 0;
+    [...items].sort((a, b) => Math.abs(b.market_value || 0) - Math.abs(a.market_value || 0))
+      .forEach(p => sortOrder.push(p.symbol));
+  }
+  const posMap = {};
+  items.forEach(p => { posMap[p.symbol] = p; });
+  const sorted = sortOrder.map(s => posMap[s]).filter(Boolean);
+  items.forEach(p => { if (!sortOrder.includes(p.symbol)) sorted.push(p); });
+
+  return sorted.map(p => {
     const cls = classifySymbol(p.symbol);
     const pnl = p.unrealized_pl || p.pnl || 0;
     const qty = p.qty != null ? (Number(p.qty) === Math.floor(Number(p.qty)) ? p.qty : Number(p.qty).toFixed(4)) : '—';
+    const label = isOpt ? _formatOptionSymbol(p.symbol) : p.symbol;
+    const shortLong = isOpt ? (Number(p.qty) < 0 ? ' style="color:var(--red)"' : ' style="color:var(--green)"') : '';
     return `<tr>
-      <td class="sym sym-${cls}">${p.symbol}</td>
-      <td>${qty}</td>
+      <td class="sym sym-${cls}">${label}</td>
+      <td${shortLong}>${qty}</td>
       <td>${fmt(p.market_value)}</td>
       <td style="text-align:right" class="${pnlClass(pnl)}">${fmtPnl(pnl)}</td>
     </tr>`;
   }).join('');
+}
+
+function renderPositions(positions) {
+  const stocks = (positions || []).filter(p => !_isOption(p.symbol));
+  const options = (positions || []).filter(p => _isOption(p.symbol));
+
+  const stockHTML = _renderTable($('stockPositionsBody'), stocks, _stockSortOrder, false);
+  if (stockHTML !== _lastStockHTML) {
+    $('stockPositionsBody').innerHTML = stockHTML;
+    _lastStockHTML = stockHTML;
+  }
+
+  const optHTML = _renderTable($('optionsPositionsBody'), options, _optSortOrder, true);
+  if (optHTML !== _lastOptHTML) {
+    $('optionsPositionsBody').innerHTML = optHTML;
+    _lastOptHTML = optHTML;
+  }
 }
 
 function renderAllocation() {
@@ -1282,6 +1345,7 @@ function renderAllocation() {
   }
 }
 
+let _lastRiskHTML = '';
 function renderRiskGauges(positions) {
   const conc = state.concentration || {};
   const heat = state.heat_status || {};
@@ -1294,7 +1358,7 @@ function renderRiskGauges(positions) {
     { label: 'Concentration', value: `${(conc.max_pct || 0).toFixed(1)}% (${conc.symbol || '—'})`, pct: conc.max_pct || 0, color: (conc.max_pct || 0) < 15 ? 'var(--green)' : (conc.max_pct || 0) < 30 ? 'var(--amber)' : 'var(--red)' },
   ];
 
-  $('riskGauges').innerHTML = gauges.map(g => `
+  const html = gauges.map(g => `
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
         <span style="color:var(--text-2);font-size:13px;">${g.label}</span>
@@ -1303,8 +1367,10 @@ function renderRiskGauges(positions) {
       <div class="prog-track"><div class="prog-fill" style="width:${Math.min(g.pct, 100)}%;background:${g.color};"></div></div>
     </div>
   `).join('');
+  if (html !== _lastRiskHTML) { $('riskGauges').innerHTML = html; _lastRiskHTML = html; }
 }
 
+let _lastPnlClassHTML = '';
 function renderPnlByClass(positions) {
   const classes = {};
   positions.forEach(p => {
@@ -1316,7 +1382,7 @@ function renderPnlByClass(positions) {
   const nameMap = { crypto: 'Crypto', stock: 'Stocks', etf: 'ETFs', option: 'Options' };
   const maxAbs = Math.max(...Object.values(classes).map(Math.abs), 1);
 
-  $('pnlByClass').innerHTML = Object.entries(classes).sort((a, b) => b[1] - a[1]).map(([cls, pnl]) => `
+  const html = Object.entries(classes).sort((a, b) => b[1] - a[1]).map(([cls, pnl]) => `
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
         <span style="color:${colorMap[cls]};font-size:13px;">${nameMap[cls] || cls}</span>
@@ -1325,15 +1391,18 @@ function renderPnlByClass(positions) {
       <div class="prog-track" style="height:6px;"><div class="prog-fill" style="width:${(Math.abs(pnl) / maxAbs * 100).toFixed(0)}%;background:${pnl >= 0 ? colorMap[cls] : 'var(--red)'};opacity:0.7;"></div></div>
     </div>
   `).join('');
+  if (html !== _lastPnlClassHTML) { $('pnlByClass').innerHTML = html; _lastPnlClassHTML = html; }
 }
 
+let _lastSignalsHTML = '';
 function renderSignals(signals) {
   const feed = $('signalsFeed');
   if (!signals || signals.length === 0) {
-    feed.innerHTML = '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No active signals</div>';
+    const empty = '<div style="color:var(--text-4);text-align:center;padding:16px;font-size:12px;">No active signals</div>';
+    if (_lastSignalsHTML !== empty) { feed.innerHTML = empty; _lastSignalsHTML = empty; }
     return;
   }
-  feed.innerHTML = signals.slice(0, 5).map(s => `
+  const html = signals.slice(0, 5).map(s => `
     <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;">
       <span style="color:var(--text-2);">${s.symbol}</span>
       <span style="color:${s.side === 'buy' ? 'var(--green)' : 'var(--red)'};">${s.side?.toUpperCase()}</span>
@@ -1341,17 +1410,20 @@ function renderSignals(signals) {
       <span style="color:var(--text-3);">${(s.confidence * 100).toFixed(0)}%</span>
     </div>
   `).join('');
+  if (html !== _lastSignalsHTML) { feed.innerHTML = html; _lastSignalsHTML = html; }
 }
 
+let _lastAgentDotsHTML = '';
 function renderAgentDots() {
   const agents = state.agent_status || [];
-  $('agentDots').innerHTML = agents.map(a => {
+  const html = agents.map(a => {
     const ok = a.status === 'running';
     return `<div style="display:flex;align-items:center;gap:5px;">
       <span class="status-dot ${ok ? 'dot-ok' : a.status === 'stale' ? 'dot-warn' : 'dot-err'}"></span>
       <span style="color:var(--text-2);font-size:13px;">${a.name}</span>
     </div>`;
   }).join('');
+  if (html !== _lastAgentDotsHTML) { $('agentDots').innerHTML = html; _lastAgentDotsHTML = html; }
 }
 
 // ── Performance Tab Renders ──

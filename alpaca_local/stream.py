@@ -89,7 +89,9 @@ def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
     if symbols_crypto is None:
         cl = [s for s in (shared.watchlist or []) if "/" in s]
         symbols_crypto = cl if cl else ["BTC/USD", "ETH/USD"]
-    symbols_option = symbols_option or ["*"]
+    # Don't subscribe to all options ("*") — causes 405 symbol limit error.
+    # Subscribe to nothing; options data comes from REST API chain lookups instead.
+    symbols_option = symbols_option or []
 
     # Essential streams (trade + stock) — always start
     _streams["trade"]  = _build_trading_stream()
@@ -135,7 +137,7 @@ def start(symbols_equity=None, symbols_crypto=None, symbols_option=None):
             symbols_crypto = ["BTC/USD", "ETH/USD", "PAXG/USD"]
         _streams["crypto"].subscribe_bars(_on_crypto, *symbols_crypto)
 
-    if "option" in _streams:
+    if "option" in _streams and symbols_option:
         try:
             _streams["option"].subscribe_quotes(_on_option, *symbols_option)
         except Exception as e:

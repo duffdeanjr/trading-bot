@@ -82,6 +82,8 @@ def _check_options_level(strategy: str) -> tuple:
 
 # -- expiry watch --
 def _check_expiring_options():
+    if settings.OPTIONS_DAYTRADE:
+        return  # 0DTE positions are expected in day-trade mode
     warn_delta = datetime.timedelta(days=settings.EXPIRY_WARN_DAYS)
     today = datetime.date.today()
     with shared.positions_lock:
@@ -278,11 +280,13 @@ def _check_naked_short(signal: dict) -> tuple:
     return True, ""
 
 def _check_options_expiry_risk(signal: dict) -> tuple:
-    """Block opening new option positions expiring within EXPIRY_WARN_DAYS."""
+    """Block opening new option positions expiring within EXPIRY_WARN_DAYS.
+    In day-trade mode (EXPIRY_WARN_DAYS=0), allows 0DTE."""
+    if settings.OPTIONS_DAYTRADE:
+        return True, ""  # day-trade mode allows all DTEs
     symbol = signal.get("symbol", "")
     if not symbol or len(symbol) < 10:
         return True, ""
-    # Check if this is an option symbol (OCC format)
     try:
         exp_str = symbol[len(symbol)-15:len(symbol)-9]  # extract YYMMDD from OCC
         exp_date = datetime.datetime.strptime(exp_str, "%y%m%d").date()

@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 _pending: set = set()
 _pending_lock = threading.Lock()  # explicit lock since fill callback runs on different thread
 
+# Backoff for symbols that keep failing (e.g. BTC/USD insufficient balance)
+_fail_counts: dict = {}   # symbol -> consecutive failure count
+_fail_until:  dict = {}   # symbol -> timestamp when retry is allowed
+_FAIL_BACKOFF_THRESHOLD = 3   # failures before backing off
+_FAIL_BACKOFF_SECS      = 300 # 5 min cooldown after repeated failures
+
 def _pending_key(symbol, side, strategy_tag):
     return (symbol, side, strategy_tag or "default")
 
@@ -61,11 +67,11 @@ def _submit_with_retry(order_request, symbol, side, strategy_tag):
         try:
             result = alpaca.submit_order(order_request)
             logger.info(f"order submitted: {side} {symbol} attempt={attempt+1}")
+            _fail_counts.pop(symbol, None)  # reset on success
             return result
         except Exception as e:
             err_str = str(e)
             if "422" in err_str:
-                # Validation error ? do not retry
                 logger.error(f"order 422 [{symbol}]: {err_str}")
                 _remove_pending(symbol, side, strategy_tag)
                 return None
@@ -76,6 +82,12 @@ def _submit_with_retry(order_request, symbol, side, strategy_tag):
             else:
                 logger.error(f"order failed after {settings.MAX_RETRIES} attempts [{symbol}]: {err_str}")
                 _remove_pending(symbol, side, strategy_tag)
+                # Track repeated failures — back off if persistent
+                count = _fail_counts.get(symbol, 0) + 1
+                _fail_counts[symbol] = count
+                if count >= _FAIL_BACKOFF_THRESHOLD:
+                    _fail_until[symbol] = time.time() + _FAIL_BACKOFF_SECS
+                    logger.warning(f"order_exec: {symbol} failed {count}x — backing off {_FAIL_BACKOFF_SECS}s")
     return None
 
 def place_order(signal: dict):
@@ -89,6 +101,11 @@ def place_order(signal: dict):
     symbol       = signal.get("symbol", "")
     side         = signal.get("side", "")
     strategy_tag = signal.get("strategy", "default")
+
+    # Skip symbols in failure backoff
+    backoff_until = _fail_until.get(symbol, 0)
+    if backoff_until > time.time():
+        return  # silently skip — already logged when backoff was set
 
     # Risk manager veto
     ok, reason = risk_manager.approve(signal)
@@ -119,6 +136,11 @@ def place_order(signal: dict):
                 legs=signal["legs"],
                 qty=qty,
                 limit_price=limit_px,
+            )
+        elif signal.get("position_intent") in ("buy_to_close", "sell_to_close"):
+            order_req = alpaca.build_options_close_order(
+                symbol=symbol, qty=qty, side=side,
+                position_intent=signal["position_intent"],
             )
         elif tp_px and stop_px:
             order_req = alpaca.build_bracket_order(
@@ -289,6 +311,17 @@ def _execute_toward_targets():
 
         if notional < 1.0:
             continue
+
+        # Crypto buys require available USD balance (separate from equity BP)
+        if side == "buy" and "/" in symbol:
+            try:
+                available_usd = float(getattr(acct, "non_marginable_buying_power", 0) or 0)
+                if available_usd < notional:
+                    logger.debug(f"order_exec: skipping {symbol} buy — need ${notional:,.0f} "
+                                 f"but only ${available_usd:,.0f} USD available")
+                    continue
+            except Exception:
+                pass
 
         # Check not already pending
         if _is_pending(symbol, side, "target_rebalance"):

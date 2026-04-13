@@ -2,7 +2,7 @@ import os
 import logging
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # ── credentials ───────────────────────────────────────────────
 APCA_KEY    = os.getenv("APCA_API_KEY_ID", "")
@@ -41,7 +41,15 @@ DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downlo
 # ── options (decision: Level 3) ───────────────────────────────
 OPTIONS_LEVEL    = 3     # 1 | 2 | 3 — must match Alpaca account approval
 OPTIONS_ENABLED  = True  # master kill-switch for all options orders
-EXPIRY_WARN_DAYS = 2     # flag short options this many days before expiry
+EXPIRY_WARN_DAYS = 0     # allow 0DTE day trading
+
+# ── options day trading ──────────────────────────────────────
+OPTIONS_DAYTRADE      = True   # enable 0DTE / short-DTE day trading mode
+OPTIONS_PROFIT_TARGET = 0.50   # close at 50% of max profit
+OPTIONS_STOP_LOSS     = 2.0    # close at 2x collected premium
+OPTIONS_EOD_EXIT_MINS = 15     # close all options positions N min before close
+OPTIONS_WING_WIDTH    = 0.03   # 3% wing width for iron condors
+OPTIONS_OTM_PCT       = 0.03   # 3% OTM for CSPs / covered calls
 
 # ── execution (decision: no VWAP/TWAP) ───────────────────────
 VWAP_TWAP = False        # requires Alpaca Elite Smart Router ($30k deposit)

@@ -121,6 +121,9 @@ def _strat_options_iv(symbol, ctx):
     ivr = ivr_data.get("ivr")
     sent_score = ctx["sent_score"]
 
+    # Crypto has no options on Alpaca
+    if "/" in symbol:
+        return []
     if regime == "unknown":
         logger.debug(f"options: {symbol} skipped — IV regime unknown (iv={iv_val})")
         return []
@@ -137,15 +140,17 @@ def _strat_options_iv(symbol, ctx):
     # Note: do NOT call _already_emitted here — the dedup loop
     # in _emit_equity_signals handles it.
 
-    if opt_strategy == "iron_condor" and (ivr is None or ivr >= 50):
+    if opt_strategy == "iron_condor" and (ivr is None or ivr >= 30):
         sig = options_strategies.iron_condor(symbol, close)
         if sig:
-            sig["confidence"] = min(0.5 + (ivr or 50) / 200, 0.9)
+            sig["confidence"] = min(0.5 + (ivr or 40) / 200, 0.9)
             sig["sentiment"] = round(sent_score, 3)
             sig["ivr"] = ivr
             return [sig]
+        else:
+            logger.info(f"options: {symbol} iron_condor selected but builder returned None")
 
-    elif opt_strategy == "covered_call" and (ivr is None or ivr >= 35):
+    elif opt_strategy == "covered_call" and (ivr is None or ivr >= 20):
         with shared.positions_lock:
             holds = symbol in shared.positions
         if holds:
@@ -153,42 +158,151 @@ def _strat_options_iv(symbol, ctx):
             if sig:
                 sig["confidence"] = 0.70
                 return [sig]
+        else:
+            logger.info(f"options: {symbol} covered_call skipped — not holding underlying")
 
     elif opt_strategy == "cash_secured_put":
         sig = options_strategies.cash_secured_put(symbol, close)
         if sig:
             sig["confidence"] = 0.65
             return [sig]
+        else:
+            logger.info(f"options: {symbol} cash_secured_put selected but builder returned None")
 
-    elif opt_strategy == "calendar_spread" and (ivr is None or ivr <= 30):
+    elif opt_strategy == "calendar_spread" and (ivr is None or ivr <= 40):
         sig = options_strategies.calendar_spread(symbol, close)
         if sig:
             sig["confidence"] = 0.60
             return [sig]
+        else:
+            logger.info(f"options: {symbol} calendar_spread selected but builder returned None")
 
     return []
+
+
+# ── options day-trade exit logic ─────────────────────────────────
+
+def _check_options_exits() -> list:
+    """Check open options positions for profit target, stop loss, or EOD exit.
+    Returns list of close signals."""
+    if not settings.OPTIONS_DAYTRADE:
+        return []
+
+    exit_signals = []
+    opt_positions = options_strategies.get_options_positions()
+
+    if not opt_positions:
+        return []
+
+    # Check EOD exit first (time-based, overrides everything)
+    now = datetime.datetime.now()
+    try:
+        from alpaca_local import client as alpaca
+        clock = alpaca.get_clock()
+        if clock.next_close:
+            close_time = clock.next_close.replace(tzinfo=None)
+            mins_to_close = (close_time - now).total_seconds() / 60
+            if 0 < mins_to_close <= settings.OPTIONS_EOD_EXIT_MINS:
+                logger.info(f"options_exit: EOD exit — {mins_to_close:.0f}min to close, "
+                            f"closing {len(opt_positions)} options positions")
+                for pos in opt_positions:
+                    sym = pos.symbol if hasattr(pos, 'symbol') else pos.get('symbol', '')
+                    qty = float(pos.qty if hasattr(pos, 'qty') else pos.get('qty', 0))
+                    close_side = "buy" if qty < 0 else "sell"
+                    sig = options_strategies.build_close_signal(
+                        sym, abs(qty), close_side, "options_exit")
+                    sig["reason"] = "eod_exit"
+                    exit_signals.append(sig)
+                return exit_signals
+    except Exception as e:
+        logger.debug(f"options_exit: clock check failed: {e}")
+
+    # Check profit target / stop loss on each position
+    for pos in opt_positions:
+        sym = pos.symbol if hasattr(pos, 'symbol') else pos.get('symbol', '')
+        qty = float(pos.qty if hasattr(pos, 'qty') else pos.get('qty', 0))
+        cost = float(pos.cost_basis if hasattr(pos, 'cost_basis') else pos.get('cost_basis', 0))
+        mkt_val = float(pos.market_value if hasattr(pos, 'market_value') else pos.get('market_value', 0))
+        unrealized_pl = float(pos.unrealized_pl if hasattr(pos, 'unrealized_pl') else pos.get('unrealized_pl', 0))
+
+        if cost == 0:
+            continue
+
+        # For short positions (sold premium): profit = cost - mkt_val (both negative)
+        # cost_basis for a short is negative (credit received)
+        entry_credit = abs(cost)
+        if entry_credit == 0:
+            continue
+
+        if qty < 0:
+            # Short position: profit when market_value approaches 0
+            current_value = abs(mkt_val)
+            profit_pct = 1.0 - (current_value / entry_credit) if entry_credit > 0 else 0
+            loss_pct = (current_value / entry_credit) - 1.0 if entry_credit > 0 else 0
+        else:
+            # Long position: profit when market_value > cost
+            profit_pct = (mkt_val - cost) / abs(cost) if cost != 0 else 0
+            loss_pct = -profit_pct
+
+        close_side = "buy" if qty < 0 else "sell"
+
+        # Profit target
+        if profit_pct >= settings.OPTIONS_PROFIT_TARGET:
+            logger.info(f"options_exit: PROFIT TARGET {sym} "
+                        f"profit={profit_pct:.0%} >= {settings.OPTIONS_PROFIT_TARGET:.0%}")
+            sig = options_strategies.build_close_signal(
+                sym, abs(qty), close_side, "options_exit")
+            sig["reason"] = "profit_target"
+            exit_signals.append(sig)
+
+        # Stop loss
+        elif loss_pct >= settings.OPTIONS_STOP_LOSS:
+            logger.info(f"options_exit: STOP LOSS {sym} "
+                        f"loss={loss_pct:.0%} >= {settings.OPTIONS_STOP_LOSS:.0%}")
+            sig = options_strategies.build_close_signal(
+                sym, abs(qty), close_side, "options_exit")
+            sig["reason"] = "stop_loss"
+            exit_signals.append(sig)
+
+    return exit_signals
 
 
 # ── signal emission state ───────────────────────────────────────
 
 _signals_emitted: dict = {}   # key -> timestamp of last emission
 _signals_lock    = threading.Lock()
-_SIGNAL_COOLDOWN = 300  # seconds before same signal can fire again
+_SIGNAL_COOLDOWN         = 120  # seconds for equity signals
+_OPTIONS_SIGNAL_COOLDOWN = 30   # seconds for options signals (faster cycling)
+_OPTIONS_EXIT_COOLDOWN   = 10   # seconds for exit signals (very fast)
+
+_OPTIONS_STRATEGIES = {"iron_condor", "covered_call", "cash_secured_put",
+                       "calendar_spread", "auto_roll", "options_exit"}
 
 def _clear_stale_signals():
-    """Remove signals older than _SIGNAL_COOLDOWN so they can re-fire."""
-    cutoff = time.time() - _SIGNAL_COOLDOWN
+    """Remove signals older than their cooldown so they can re-fire."""
+    now = time.time()
     with _signals_lock:
-        stale = [k for k, ts in _signals_emitted.items() if ts < cutoff]
+        stale = [k for k, ts in _signals_emitted.items()
+                 if now - ts > _cooldown_for(k)]
         for k in stale:
             del _signals_emitted[k]
+
+def _cooldown_for(key: tuple) -> int:
+    """Return cooldown seconds based on strategy type."""
+    strategy = key[2] if len(key) > 2 else ""
+    if strategy == "options_exit":
+        return _OPTIONS_EXIT_COOLDOWN
+    if strategy in _OPTIONS_STRATEGIES:
+        return _OPTIONS_SIGNAL_COOLDOWN
+    return _SIGNAL_COOLDOWN
 
 def _already_emitted(symbol, side, strategy) -> bool:
     key = (symbol, side, strategy)
     now = time.time()
+    cooldown = _cooldown_for(key)
     with _signals_lock:
         last_ts = _signals_emitted.get(key)
-        if last_ts and (now - last_ts) < _SIGNAL_COOLDOWN:
+        if last_ts and (now - last_ts) < cooldown:
             return True
         _signals_emitted[key] = now
         return False
@@ -608,6 +722,18 @@ def run():
         crypto_signals = _emit_crypto_signals()
         roll_signals   = _check_rolls() if shared.MARKET_OPEN else []
 
+        # Options day-trade exit checks (profit target, stop loss, EOD)
+        exit_signals = _check_options_exits() if shared.MARKET_OPEN else []
+        if exit_signals:
+            logger.info(f"signal_generator: routing {len(exit_signals)} options EXIT signals")
+            from agents import order_execution
+            for sig in exit_signals:
+                try:
+                    if not _already_emitted(sig["symbol"], sig["side"], "options_exit"):
+                        order_execution.place_order(sig)
+                except Exception as e:
+                    logger.warning(f"signal_generator: options exit order failed [{sig.get('symbol')}]: {e}")
+
         # Generate factory strategy signals (live only — shadow logged internally)
         factory_signals = []
         if shared.MARKET_OPEN or shared.EXTENDED_HOURS:
@@ -669,6 +795,11 @@ def run():
 
         all_signals = equity_signals + crypto_signals + roll_signals + factory_signals
 
+        if all_signals:
+            logger.info(f"signal_generator: {len(all_signals)} raw signals "
+                        f"(eq={len(equity_signals)} crypto={len(crypto_signals)} "
+                        f"roll={len(roll_signals)} factory={len(factory_signals)})")
+
         # Boost conviction for signals aligned with options flow
         _apply_flow_boost(all_signals)
 
@@ -696,6 +827,8 @@ def run():
 
         # Route options signals directly to order execution
         if options_signals:
+            logger.info(f"signal_generator: routing {len(options_signals)} options signals to order_exec: "
+                        f"{[(s.get('symbol'), s.get('strategy')) for s in options_signals]}")
             from agents import order_execution
             for sig in options_signals:
                 try:
