@@ -435,6 +435,21 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
+    <!-- Investment Plan + Screener -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span class="card-label" style="margin:0;">Investment plan</span>
+          <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
+        </div>
+        <div id="planTargets"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Screener Discoveries</div>
+        <div id="screenerActivity" style="max-height:250px;overflow-y:auto;"></div>
+      </div>
+    </div>
+
     <!-- Recent Signals + Agent Status (bottom) -->
     <div class="grid-2 mb">
       <div class="card">
@@ -535,12 +550,6 @@ a { color: var(--cyan); text-decoration: none; }
         <div id="ivRegimeMap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;"></div>
       </div>
 
-      <!-- Open Orders -->
-      <div class="card mb">
-        <div class="card-label">Live Orders</div>
-        <div id="openOrders" style="font-size:13px;"></div>
-      </div>
-
       <!-- Strategy Leaderboard + Execution Quality -->
       <div class="grid-2 mb">
         <div class="card">
@@ -552,12 +561,8 @@ a { color: var(--cyan); text-decoration: none; }
           <div id="execQuality" style="font-size:13px;"></div>
         </div>
       </div>
-
-      <!-- News Sentiment -->
-      <div class="card mb">
-        <div class="card-label">News Sentiment Feed</div>
-        <div id="newsSentiment" style="font-size:13px;max-height:400px;overflow-y:auto;"></div>
-      </div>
+      <!-- Hidden: elements still referenced by JS -->
+      <div style="display:none;"><div id="openOrders"></div><div id="optionsActivity"></div></div>
 
     </div>
 
@@ -583,27 +588,6 @@ a { color: var(--cyan); text-decoration: none; }
       <div class="card mb">
         <div class="card-label">P&L by strategy (cumulative)</div>
         <canvas id="chartStratAttribution" height="140"></canvas>
-      </div>
-
-      <!-- Investment Plan -->
-      <div class="card mb">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <span class="card-label" style="margin:0;">Investment plan</span>
-          <span id="planBadge" class="badge" style="background:rgba(255,255,136,0.1);color:var(--yellow);font-size:12px;">—</span>
-        </div>
-        <div id="planTargets"></div>
-      </div>
-
-      <!-- Options Activity / Screener Discoveries -->
-      <div class="grid-2 mb">
-        <div class="card">
-          <div class="card-label">Options Activity</div>
-          <div id="optionsActivity" style="max-height:200px;overflow-y:auto;"></div>
-        </div>
-        <div class="card">
-          <div class="card-label">Screener Discoveries</div>
-          <div id="screenerActivity" style="max-height:200px;overflow-y:auto;"></div>
-        </div>
       </div>
 
       <!-- Order Rejections / Signal Confidence -->
@@ -650,6 +634,12 @@ a { color: var(--cyan); text-decoration: none; }
     <div class="card mb">
       <div class="card-label">Sentiment by Symbol</div>
       <div id="newsSentBySymbol"></div>
+    </div>
+
+    <!-- News Sentiment Feed -->
+    <div class="card mb">
+      <div class="card-label">News Sentiment Feed</div>
+      <div id="newsSentiment" style="font-size:13px;max-height:400px;overflow-y:auto;"></div>
     </div>
 
     <!-- News Feed -->
