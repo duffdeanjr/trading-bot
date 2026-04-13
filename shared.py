@@ -106,6 +106,17 @@ def get_positions_snapshot() -> dict:
         return dict(positions)
 
 
+def get_plan_snapshot() -> dict:
+    """Return a shallow copy of the investment plan dict."""
+    with cache_lock:
+        plan = investment_plan
+    if plan is None:
+        return {}
+    if isinstance(plan, dict):
+        return dict(plan)
+    return plan
+
+
 # ─────────────────────────────────────────────────────────────
 # HEARTBEAT HELPER — agents call this every tick
 # ─────────────────────────────────────────────────────────────

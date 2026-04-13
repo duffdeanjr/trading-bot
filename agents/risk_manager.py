@@ -199,6 +199,46 @@ def get_heat_status() -> dict:
     }
 
 
+def _check_vix_ceiling() -> bool:
+    """Return True if VIX has breached the per-plan vix_ceiling."""
+    from agents import plan_manager
+    ceiling = plan_manager.get_plan_risk_param("vix_ceiling")
+    if ceiling is None:
+        return False
+    with _heat_lock:
+        vix = _last_vix
+    return vix >= ceiling
+
+
+_vix_ceiling_triggered = False
+
+def _emergency_liquidate(reason: str):
+    """Cancel all orders, close all positions, set plan to 100% cash."""
+    logger.critical(f"risk_manager: EMERGENCY LIQUIDATION — {reason}")
+    try:
+        from alpaca_local import client as alpaca
+        alpaca.cancel_all_orders()
+        # Close all positions via REST
+        import requests as _req
+        headers = {'APCA-API-KEY-ID': settings.APCA_KEY, 'APCA-API-SECRET-KEY': settings.APCA_SECRET}
+        _req.delete(f'{settings.BASE_URL}/v2/positions', headers=headers, timeout=10)
+    except Exception as e:
+        logger.error(f"risk_manager: liquidation API error: {e}")
+    try:
+        from agents import plan_manager
+        with shared.cache_lock:
+            plan = shared.investment_plan
+        if plan and isinstance(plan, dict):
+            plan["symbols"] = {}
+            plan["cash_target_pct"] = 1.0
+            plan["stance"] = "risk-off"
+            plan["notes"] = (plan.get("notes", []) or []) + [f"EMERGENCY: {reason}"]
+            plan_manager.save_plan(plan, trigger="vix_ceiling_breach",
+                                   summary=f"Emergency liquidation: {reason}")
+    except Exception as e:
+        logger.error(f"risk_manager: plan update after liquidation failed: {e}")
+
+
 def get_daily_target_status() -> dict:
     """Return daily P&L progress toward 1% target."""
     with shared.account_lock:
@@ -463,9 +503,13 @@ def approve(signal: dict) -> tuple:
         _check_stop_loss(signal),
     ]
 
-    # Circuit breaker only blocks NEW positions, not closes
+    # Circuit breaker and VIX ceiling only block NEW positions, not closes
     if not is_close:
         checks.insert(0, _check_circuit_breaker())
+        if _check_vix_ceiling():
+            from agents import plan_manager
+            ceiling = plan_manager.get_plan_risk_param("vix_ceiling")
+            return False, f"VIX ceiling {ceiling} breached — all new orders blocked"
 
     for ok, reason in checks:
         if not ok:
@@ -476,9 +520,22 @@ def approve(signal: dict) -> tuple:
 # -- main loop --
 @shared.register_agent("risk_manager", phase=7)
 def run():
+    global _vix_ceiling_triggered
     logger.info("risk_manager: starting")
     while not shared.SHUTTING_DOWN:
         shared.heartbeat("risk_manager")
         _check_expiring_options()
+
+        # VIX ceiling emergency liquidation
+        if _check_vix_ceiling():
+            if not _vix_ceiling_triggered:
+                _vix_ceiling_triggered = True
+                from agents import plan_manager
+                ceiling = plan_manager.get_plan_risk_param("vix_ceiling")
+                vix = get_last_vix()
+                _emergency_liquidate(f"VIX {vix:.1f} breached ceiling {ceiling}")
+        else:
+            _vix_ceiling_triggered = False
+
         time.sleep(settings.TICK_INTERVAL * 12)
     logger.info("risk_manager: SHUTTING_DOWN -> exiting")

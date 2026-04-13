@@ -87,6 +87,12 @@ MAX_CONSECUTIVE_LOSSES = 5     # circuit breaker: halt after N straight losses
 DAILY_TARGET_PCT     = 0.01    # 1% daily profit target — lock gains when reached
 DAILY_TARGET_LOCK    = True    # stop opening new positions after hitting target
 
+# ── per-plan risk defaults (overridden by plan dict values) ──
+MIN_SIGNAL_CONFIDENCE = 0.0       # 0-1; signals below this dropped pre-plan
+CONVICTION_CURVE      = "linear"  # "linear" | "exponential" | "sqrt"
+VIX_CEILING           = None      # float or None; emergency liquidation trigger
+CASH_FLOOR_PCT        = 0.10      # 0-1; cash target never drops below this
+
 # ── signal thresholds ────────────────────────────────────────
 RSI_OVERSOLD  = 30.0
 RSI_OVERBOUGHT = 70.0

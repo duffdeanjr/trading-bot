@@ -704,7 +704,11 @@ def run():
             time.sleep(settings.TICK_INTERVAL)
             continue
 
-        symbols = _get_watchlist()
+        wl_override = plan_manager.get_plan_risk_param("watchlist_override")
+        if wl_override and isinstance(wl_override, list) and len(wl_override) > 0:
+            symbols = list(wl_override)
+        else:
+            symbols = _get_watchlist()
         _refresh_strategy_scores()
 
         # Refresh factory strategies (daily)
@@ -820,6 +824,18 @@ def run():
         # Apply ensemble voting before sending to plan manager
         if plan_signals:
             plan_signals = _apply_ensemble_voting(plan_signals)
+
+        # Drop signals below per-plan min_signal_confidence
+        if plan_signals:
+            min_conf = plan_manager.get_plan_risk_param("min_signal_confidence")
+            if min_conf and min_conf > 0:
+                before = len(plan_signals)
+                plan_signals = [s for s in plan_signals
+                                if float(s.get("confidence", 0)) >= min_conf]
+                dropped = before - len(plan_signals)
+                if dropped:
+                    logger.info(f"signal_generator: dropped {dropped}/{before} signals "
+                                f"below min_confidence={min_conf:.2f}")
 
         if plan_signals:
             try:

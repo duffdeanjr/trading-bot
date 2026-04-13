@@ -190,6 +190,20 @@ def _get_portfolio_history():
     return _ph_cache["data"]
 
 
+def _plan_risk(param_name, default):
+    """Read a per-plan risk param from the latest plan in DB, with global fallback."""
+    try:
+        row = query_one("SELECT plan_json FROM investment_plans ORDER BY version DESC LIMIT 1")
+        if row and row.get("plan_json"):
+            plan = json.loads(row["plan_json"])
+            val = plan.get(param_name)
+            if val is not None:
+                return val
+    except Exception:
+        pass
+    return default
+
+
 def _get_parameters():
     """Snapshot of all tunable settings for the dashboard."""
     return {
@@ -224,6 +238,12 @@ def _get_parameters():
         "options_otm_pct":     settings.OPTIONS_OTM_PCT * 100,
         "daily_target_pct":    settings.DAILY_TARGET_PCT * 100,
         "daily_target_lock":   settings.DAILY_TARGET_LOCK,
+        # per-plan risk params (read from plan, fallback to global)
+        "min_signal_confidence": _plan_risk("min_signal_confidence", settings.MIN_SIGNAL_CONFIDENCE),
+        "conviction_curve":      _plan_risk("conviction_curve", settings.CONVICTION_CURVE),
+        "vix_ceiling":           _plan_risk("vix_ceiling", None),
+        "cash_floor_pct":        round((_plan_risk("cash_floor_pct", settings.CASH_FLOOR_PCT) or 0) * 100, 1),
+        "watchlist_override":    _plan_risk("watchlist_override", None),
     }
 
 
@@ -880,6 +900,75 @@ def api_bandit():
     return result
 
 
+def exec_update_plan_risk(handler):
+    """Update per-plan risk parameters."""
+    data = _read_body(handler)
+    if not HAS_BOT:
+        _json_response(handler, {"error": "bot not running"}, 503)
+        return
+    VALID_CURVES = {"linear", "exponential", "sqrt"}
+    updates = {}
+    if "min_signal_confidence" in data:
+        v = float(data["min_signal_confidence"])
+        updates["min_signal_confidence"] = max(0.0, min(1.0, v))
+    if "conviction_curve" in data:
+        v = str(data["conviction_curve"]).lower()
+        if v in VALID_CURVES:
+            updates["conviction_curve"] = v
+    if "vix_ceiling" in data:
+        v = data["vix_ceiling"]
+        updates["vix_ceiling"] = float(v) if v is not None else None
+    if "cash_floor_pct" in data:
+        v = float(data["cash_floor_pct"])
+        if v > 1:
+            v = v / 100  # auto-convert percentage to fraction
+        updates["cash_floor_pct"] = max(0.0, min(1.0, v))
+    if "watchlist_override" in data:
+        v = data["watchlist_override"]
+        if isinstance(v, str):
+            v = [s.strip().upper() for s in v.split(",") if s.strip()] or None
+        elif isinstance(v, list):
+            v = [s.strip().upper() for s in v if s.strip()] or None
+        else:
+            v = None
+        updates["watchlist_override"] = v
+
+    if not updates:
+        _json_response(handler, {"error": "no valid params provided"}, 400)
+        return
+
+    # Read latest plan from DB (cross-process safe), merge updates, save back
+    plan = None
+    try:
+        row = query_one("SELECT plan_json FROM investment_plans ORDER BY version DESC LIMIT 1")
+        if row and row.get("plan_json"):
+            plan = json.loads(row["plan_json"])
+    except Exception:
+        pass
+    if not plan:
+        plan = {}
+
+    for k, v in updates.items():
+        plan[k] = v
+
+    # Update bot's in-memory plan if running in same process
+    if HAS_BOT:
+        with shared.cache_lock:
+            if shared.investment_plan and isinstance(shared.investment_plan, dict):
+                for k, v in updates.items():
+                    shared.investment_plan[k] = v
+
+    # Persist to DB
+    try:
+        from agents import plan_manager
+        plan_manager.save_plan(plan, trigger="dashboard_risk_edit",
+                               summary=f"Updated risk params: {list(updates.keys())}")
+    except Exception as e:
+        logger.error(f"plan risk update save failed: {e}")
+
+    _json_response(handler, {"ok": True, "updated": updates})
+
+
 POST_ROUTES = {
     "/api/exec/pause":           exec_pause,
     "/api/exec/resume":          exec_resume,
@@ -891,6 +980,7 @@ POST_ROUTES = {
     "/api/exec/plan":            exec_update_plan,
     "/api/exec/plan-rollback":   exec_rollback_plan,
     "/api/exec/parameters":      exec_update_parameters,
+    "/api/exec/plan-risk":       exec_update_plan_risk,
 }
 
 
