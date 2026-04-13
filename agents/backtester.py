@@ -236,7 +236,7 @@ def seed_strategy_scores(results: dict):
         # Simplified score: weight win_rate and avg_pnl
         score = 0.5 * wr + 0.5 * min(max(avg_pnl / 100, 0), 1)
         database.write_strategy_score(strat, wr, avg_pnl, 0.0, s["trades"], round(score, 3))
-        print(f"  seeded score: {strat} -> {score:.3f} (wr={wr:.0%}, trades={s['trades']})")
+        logger.info(f"seeded score: {strat} -> {score:.3f} (wr={wr:.0%}, trades={s['trades']})")
 
 
 # ---------------------------------------------------------------------------

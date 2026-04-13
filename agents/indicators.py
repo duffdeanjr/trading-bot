@@ -23,11 +23,6 @@ def register_indicator(name, args=None):
     return decorator
 
 
-def get_registry():
-    """Return a copy of the indicator registry for introspection."""
-    return dict(_REGISTRY)
-
-
 # ── helpers (not registered) ────────────────────────────────────
 
 def ema(values: list, period: int) -> list:

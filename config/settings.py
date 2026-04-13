@@ -33,11 +33,6 @@ DATA_FEED = "iex"       # "iex" (free) | "sip" (Algo Trader Plus, $99/mo)
 # ── database (decision: SQLite) ───────────────────────────────
 DB_PATH = "trading.db"  # swap to postgres:// URI to migrate later
 
-# ── downloads ─────────────────────────────────────────────────
-# Single folder for all data files fetched by ref_library.
-# Subfolders: historical_bars/ | news/ | options/ | corporate_actions/
-DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downloads")
-
 # ── options (decision: Level 3) ───────────────────────────────
 OPTIONS_LEVEL    = 3     # 1 | 2 | 3 — must match Alpaca account approval
 OPTIONS_ENABLED  = True  # master kill-switch for all options orders

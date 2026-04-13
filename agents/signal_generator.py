@@ -8,6 +8,7 @@ import logging
 import threading
 import math
 import datetime
+from collections import defaultdict
 import shared
 from config import settings
 from storage import database
@@ -30,10 +31,6 @@ def register_strategy(name):
         return fn
     return decorator
 
-
-def get_strategy_registry():
-    """Return a copy of the strategy registry for introspection."""
-    return dict(_STRATEGY_REGISTRY)
 
 
 # ── registered strategies ───────────────────────────────────────
@@ -642,7 +639,6 @@ def _apply_ensemble_voting(signals: list) -> list:
     - Exactly 1 strategy fires: emit at original conviction * SOLO_PENALTY
     - Strategies disagree (bull + bear): suppress entirely
     """
-    from collections import defaultdict
 
     # Group signals by symbol
     by_symbol = defaultdict(list)
