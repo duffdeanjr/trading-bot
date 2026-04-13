@@ -468,13 +468,12 @@ a { color: var(--cyan); text-decoration: none; }
 
     <!-- Subtab toggles -->
     <div class="subtabs" id="perfSubtabs">
-      <div class="subtab active" data-subtab="stocks">Stocks</div>
-      <div class="subtab" data-subtab="options">Options</div>
+      <div class="subtab active" data-subtab="overview">Overview</div>
       <div class="subtab" data-subtab="strategy">Strategy</div>
     </div>
 
-    <!-- ── Subtab: Stocks ──────────────────────────────────────── -->
-    <div class="subtab-content active" id="subtab-stocks">
+    <!-- ── Subtab: Overview (merged Stocks + Options) ──────────── -->
+    <div class="subtab-content active" id="subtab-overview">
 
       <!-- Stat Cards -->
       <div class="grid-5 mb">
@@ -500,19 +499,19 @@ a { color: var(--cyan); text-decoration: none; }
         </div>
       </div>
 
-      <!-- Drawdown from Peak -->
-      <div class="card mb">
-        <div class="card-label">Drawdown from peak</div>
-        <canvas id="chartDrawdown" height="110"></canvas>
-      </div>
-
-      <!-- Intraday P&L Chart -->
-      <div class="card mb">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-          <span class="card-label" style="margin:0;">Intraday P&L</span>
-          <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
+      <!-- Intraday P&L + Drawdown -->
+      <div class="grid-2 mb">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <span class="card-label" style="margin:0;">Intraday P&L</span>
+            <span id="intradayPnl" style="font-family:var(--font-mono);font-size:13px;color:var(--green);">—</span>
+          </div>
+          <canvas id="chartIntraday" height="100"></canvas>
         </div>
-        <canvas id="chartIntraday" height="100"></canvas>
+        <div class="card">
+          <div class="card-label">Drawdown from peak</div>
+          <canvas id="chartDrawdown" height="100"></canvas>
+        </div>
       </div>
 
       <!-- Daily P&L / Trade Distribution -->
@@ -527,31 +526,18 @@ a { color: var(--cyan); text-decoration: none; }
         </div>
       </div>
 
-      <!-- P&L Calendar Heatmap -->
-      <div class="card mb">
-        <div class="card-label">P&L calendar</div>
-        <canvas id="chartPnlCalendar" height="160"></canvas>
-      </div>
-
-    </div>
-
-    <!-- ── Subtab: Options ─────────────────────────────────────── -->
-    <div class="subtab-content" id="subtab-options">
-
-      <!-- Profit Target / Stop Loss Tracker -->
+      <!-- Options Position Tracker -->
       <div class="card mb">
         <div class="card-label">Options Position Tracker</div>
         <div id="optionsTracker" style="font-size:13px;"></div>
       </div>
 
-      <!-- IV Regime Heatmap -->
-      <div class="card mb">
-        <div class="card-label">IV Regime Map</div>
-        <div id="ivRegimeMap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;"></div>
-      </div>
-
-      <!-- Strategy Leaderboard + Execution Quality -->
-      <div class="grid-2 mb">
+      <!-- IV Regime Map + Strategy Leaderboard + Execution Quality -->
+      <div class="grid-3 mb">
+        <div class="card">
+          <div class="card-label">IV Regime Map</div>
+          <div id="ivRegimeMap" style="display:grid;grid-template-columns:1fr;gap:6px;font-size:12px;"></div>
+        </div>
         <div class="card">
           <div class="card-label">Strategy Leaderboard (24h)</div>
           <div id="strategyLeaderboard" style="font-size:13px;"></div>
@@ -561,10 +547,17 @@ a { color: var(--cyan); text-decoration: none; }
           <div id="execQuality" style="font-size:13px;"></div>
         </div>
       </div>
-      <!-- Hidden: elements still referenced by JS -->
-      <div style="display:none;"><div id="openOrders"></div><div id="optionsActivity"></div></div>
+
+      <!-- P&L Calendar -->
+      <div class="card mb">
+        <div class="card-label">P&L calendar</div>
+        <canvas id="chartPnlCalendar" height="160"></canvas>
+      </div>
 
     </div>
+
+    <!-- Hidden: elements still referenced by JS -->
+    <div style="display:none;"><div id="openOrders"></div><div id="optionsActivity"></div></div>
 
     <!-- ── Subtab: Strategy ────────────────────────────────────── -->
     <div class="subtab-content" id="subtab-strategy">
@@ -1170,8 +1163,8 @@ function renderCharts() {
     renderAllocation();
   }
   if (activeTab === 'performance') {
-    const activeSubtab = document.querySelector('#perfSubtabs .subtab.active')?.dataset.subtab || 'stocks';
-    if (activeSubtab === 'stocks') {
+    const activeSubtab = document.querySelector('#perfSubtabs .subtab.active')?.dataset.subtab || 'overview';
+    if (activeSubtab === 'overview') {
       renderDrawdown();
       renderIntradayChart(positions);
       renderDailyPnl();
