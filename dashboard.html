@@ -328,28 +328,19 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Options P&L + Countdown Row -->
+    <!-- Market Close Countdown -->
     <div class="grid-4 mb">
-      <div class="card">
-        <div class="card-label">Options P&L</div>
-        <div class="card-value" id="optionsPnl">—</div>
-        <div class="card-sub" id="optionsPnlCount">0 positions</div>
-      </div>
       <div class="card">
         <div class="card-label">Market close</div>
         <div class="card-value" id="countdownClose">—</div>
         <div class="card-sub" id="countdownEod">—</div>
       </div>
-      <div class="card">
-        <div class="card-label">Day trades (PDT)</div>
-        <div class="card-value" id="pdtCount">—</div>
-        <div class="card-sub" id="pdtStatus">—</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Premium flow (24h)</div>
-        <div class="card-value" id="cashFlowNet">—</div>
-        <div class="card-sub" id="cashFlowDetail">—</div>
-      </div>
+    </div>
+    <!-- Hidden elements for JS that still references them -->
+    <div style="display:none;">
+      <span id="optionsPnl"></span><span id="optionsPnlCount"></span>
+      <span id="pdtCount"></span><span id="pdtStatus"></span>
+      <span id="cashFlowNet"></span><span id="cashFlowDetail"></span>
     </div>
 
     <!-- Alert Banner -->
@@ -392,40 +383,17 @@ a { color: var(--cyan); text-decoration: none; }
       </div>
     </div>
 
-    <!-- Positions (Stocks + Options) / Signals+Agents -->
-    <div class="grid-3-2">
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        <div class="card">
-          <div class="card-label">Stock positions</div>
-          <div class="scroll-y">
-            <table class="pos-table">
-              <thead><tr><th>Symbol</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
-              <tbody id="stockPositionsBody"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-label">Options positions</div>
-          <div class="scroll-y">
-            <table class="pos-table">
-              <thead><tr><th>Contract</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
-              <tbody id="optionsPositionsBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-label">Recent signals</div>
-        <div id="signalsFeed" style="margin-bottom:16px;"></div>
-        <div style="border-top:1px solid var(--border);padding-top:12px;">
-          <div class="card-label">Agent status</div>
-          <div id="agentDots" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Trade Log -->
+    <!-- Stock Positions + Stock Trades side by side -->
     <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Stock positions</div>
+        <div class="scroll-y" style="max-height:300px;">
+          <table class="pos-table">
+            <thead><tr><th>Symbol</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
+            <tbody id="stockPositionsBody"></tbody>
+          </table>
+        </div>
+      </div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <span class="card-label" style="margin:0;">Stock & Crypto Trades</span>
@@ -439,6 +407,19 @@ a { color: var(--cyan); text-decoration: none; }
         </div>
         <div class="show-more" id="stockTradeMore"></div>
       </div>
+    </div>
+
+    <!-- Options Positions + Options Trades side by side -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Options positions</div>
+        <div class="scroll-y" style="max-height:300px;">
+          <table class="pos-table">
+            <thead><tr><th>Contract</th><th>Qty</th><th>Value</th><th style="text-align:right">P&L</th></tr></thead>
+            <tbody id="optionsPositionsBody"></tbody>
+          </table>
+        </div>
+      </div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <span class="card-label" style="margin:0;">Options Trades</span>
@@ -451,6 +432,18 @@ a { color: var(--cyan); text-decoration: none; }
           </table>
         </div>
         <div class="show-more" id="optionTradeMore"></div>
+      </div>
+    </div>
+
+    <!-- Recent Signals + Agent Status (bottom) -->
+    <div class="grid-2 mb">
+      <div class="card">
+        <div class="card-label">Recent signals</div>
+        <div id="signalsFeed"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Agent status</div>
+        <div id="agentDots" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;"></div>
       </div>
     </div>
   </div>
@@ -857,10 +850,16 @@ updateClock();
 // ══════════════════════════════════════════════════════════════════
 const API = '';  // same origin — dashboard.py serves both
 let state = {};
+let _fetchInFlight = false;
 
 async function fetchData() {
+  if (_fetchInFlight) return; // prevent stacking slow requests
+  _fetchInFlight = true;
   try {
-    const raw = await fetch(API + '/api/data').then(r => r.ok ? r.json() : null).catch(() => null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10s max
+    const raw = await fetch(API + '/api/data', {signal: controller.signal}).then(r => r.ok ? r.json() : null).catch(() => null);
+    clearTimeout(timeout);
     if (!raw) return;
     // Map /api/data response to our internal state shape
     const acct = raw.account || {};
@@ -965,6 +964,8 @@ async function fetchData() {
     }
   } catch(e) {
     console.error('Fetch error:', e);
+  } finally {
+    _fetchInFlight = false;
   }
 }
 
@@ -1264,6 +1265,7 @@ function render() {
   // ── Text-only renders (safe to run every 5s) ──
   renderAlerts(positions);
   renderPositions(positions);
+  renderAllocation();
   renderRiskGauges(positions);
   renderPnlByClass(positions);
   renderSignals(signals);
@@ -1427,9 +1429,15 @@ function renderPositions(positions) {
   }
 }
 
+let _lastAllocKey = '';
 function renderAllocation() {
   const alloc = state.allocation || {};
   if (Object.keys(alloc).length === 0) return;
+  // Cache key: skip redraw if allocation unchanged
+  const key = JSON.stringify(alloc);
+  if (key === _lastAllocKey) return;
+  _lastAllocKey = key;
+
   const colorMap = { crypto: '#ffaa00', us_equity: '#00c8ff', Stocks: '#00c8ff', stock: '#00c8ff', etf: '#a78bfa', us_option: '#e879f9', option: '#e879f9', unknown: '#666' };
   const nameMap = { crypto: 'Crypto', us_equity: 'Stocks', Stocks: 'Stocks', stock: 'Stocks', etf: 'ETFs', us_option: 'Options', option: 'Options', unknown: 'Other' };
   const segments = Object.entries(alloc)

@@ -259,10 +259,10 @@ def _get_options_pnl(positions):
         sym = p.get("symbol", "")
         if len(sym) <= 10:
             continue
-        cost = float(p.get("avg_cost") or 0) * float(p.get("qty") or 0)
+        cost = float(p.get("avg_cost") or 0) * abs(float(p.get("qty") or 0)) * 100
         mkt = float(p.get("market_val") or 0)
         pnl = float(p.get("unrealised") or 0)
-        total_cost += abs(cost)
+        total_cost += cost
         total_mkt += mkt
         total_pnl += pnl
         count += 1
@@ -325,21 +325,34 @@ def _get_options_tracker(positions):
         if len(sym) <= 10:
             continue
         qty = float(p.get("qty") or 0)
-        cost = float(p.get("avg_cost") or 0) * abs(qty)
+        # Options: avg_cost is per-share, multiply by 100 for per-contract cost
+        avg_cost = float(p.get("avg_cost") or 0)
+        entry_cost = abs(avg_cost) * abs(qty) * 100  # 100x multiplier for options
         mkt = float(p.get("market_val") or 0)
-        entry_credit = abs(cost)
-        if entry_credit == 0:
-            continue
+        current_value = abs(mkt)
+
+        if entry_cost < 1:
+            # Entry at $0 (e.g., filled at $0.00) — use current value as basis
+            # or skip if both are zero
+            if current_value < 1:
+                continue
+            entry_cost = current_value  # show 0% profit
+
         if qty < 0:
-            current_value = abs(mkt)
-            profit_pct = 1.0 - (current_value / entry_credit) if entry_credit > 0 else 0
+            # Short: profit when current_value < entry_cost
+            profit_pct = 1.0 - (current_value / entry_cost) if entry_cost > 0 else 0
         else:
-            profit_pct = (mkt - cost) / abs(cost) if cost != 0 else 0
+            # Long: profit when current_value > entry_cost
+            profit_pct = (current_value - entry_cost) / entry_cost if entry_cost > 0 else 0
+
+        # Clamp to reasonable range
+        profit_pct = max(-10.0, min(10.0, profit_pct))
+
         result.append({
             "symbol": sym,
             "qty": qty,
-            "entry_credit": round(entry_credit, 2),
-            "current_value": round(abs(mkt), 2),
+            "entry_credit": round(entry_cost, 2),
+            "current_value": round(current_value, 2),
             "profit_pct": round(profit_pct * 100, 1),
             "target_pct": settings.OPTIONS_PROFIT_TARGET * 100,
             "stop_pct": settings.OPTIONS_STOP_LOSS * 100,
