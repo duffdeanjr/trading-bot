@@ -508,6 +508,34 @@ a { color: var(--cyan); text-decoration: none; }
         <canvas id="chartStratAttribution" height="140"></canvas>
       </div>
 
+      <!-- Strategy Leaderboard -->
+      <div class="card mb">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-label" style="margin:0;">Strategy Leaderboard</span>
+          <span id="leaderboardCount" style="color:var(--text-4);font-size:11px;"></span>
+        </div>
+        <div id="stratLeaderboard"></div>
+      </div>
+
+      <!-- Closed Trade Outcomes -->
+      <div class="card mb">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-label" style="margin:0;">Closed Trade Outcomes</span>
+          <span id="outcomesSummary" style="color:var(--text-4);font-size:11px;"></span>
+        </div>
+        <div style="max-height:300px;overflow-y:auto;">
+          <table class="tbl" id="outcomesTable">
+            <thead><tr>
+              <th>Symbol</th><th>Strategy</th><th>Side</th>
+              <th style="text-align:right">Entry</th><th style="text-align:right">Exit</th>
+              <th style="text-align:right">P&L</th><th style="text-align:right">P&L%</th>
+              <th style="text-align:right">Hold</th><th>Status</th>
+            </tr></thead>
+            <tbody id="outcomesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Investment Plan -->
       <div class="card mb">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -827,9 +855,14 @@ async function fetchData() {
         symbol: o.symbol,
         strategy: o.strategy,
         side: o.side,
+        entry_price: parseFloat(o.entry_price || 0),
+        exit_price: parseFloat(o.exit_price || 0),
         pnl: parseFloat(o.pnl || 0),
         pnl_pct: parseFloat(o.pnl_pct || 0),
+        hold_duration_s: parseInt(o.hold_duration_s || 0),
         status: o.status,
+        entry_ts: o.entry_ts || '',
+        exit_ts: o.exit_ts || '',
       })),
       // Strategy scores + attribution
       strategy_scores: raw.strategy_scores || [],
@@ -1187,6 +1220,8 @@ function render() {
   $('avgWin').textContent = avgWin != null ? fmtPnl(avgWin) : '—';
   $('avgLoss').textContent = avgLoss != null ? fmtPnl(avgLoss) : '—';
   renderStrategyPerf(trades);
+  renderLeaderboard();
+  renderOutcomesTable();
   renderPlan(plan);
   renderOptionsActivity(state.options_trades);
   renderScreenerActivity(state.screener_activity);
@@ -1987,6 +2022,85 @@ function renderStrategyMix(trades) {
   $('stratLegend').innerHTML = segments.map(s =>
     `<div class="donut-legend-item"><div class="donut-swatch" style="background:${s.color}"></div><span style="color:var(--text-2);font-size:12px;">${s.label} ${Math.round(s.pct)}%</span></div>`
   ).join('');
+}
+
+function renderLeaderboard() {
+  const scores = state.strategy_scores || [];
+  const el = $('stratLeaderboard');
+
+  if (scores.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-4);text-align:center;padding:20px;font-size:12px;">Waiting for strategy scores to populate...<br><span style="font-size:11px;color:var(--text-4);">Requires closed outcomes from the feedback loop</span></div>';
+    $('leaderboardCount').textContent = '';
+    return;
+  }
+
+  // Sort by score descending
+  const sorted = [...scores].sort((a, b) => (b.score || 0) - (a.score || 0));
+  $('leaderboardCount').textContent = `${sorted.length} strategies scored`;
+
+  el.innerHTML = `<table class="tbl"><thead><tr>
+    <th>#</th><th>Strategy</th><th style="text-align:right">Score</th>
+    <th style="text-align:right">Win%</th><th style="text-align:right">Sharpe</th>
+    <th style="text-align:right">Avg P&L</th><th style="text-align:right">Trades</th>
+  </tr></thead><tbody>` + sorted.map((s, i) => {
+    const scoreColor = s.score >= 0.6 ? 'var(--green)' : s.score >= 0.3 ? 'var(--amber)' : 'var(--red)';
+    const pnlColor = (s.avg_pnl_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+    const medal = i === 0 ? ' \u{1F947}' : i === 1 ? ' \u{1F948}' : i === 2 ? ' \u{1F949}' : '';
+    return `<tr>
+      <td style="color:var(--text-4)">${i+1}${medal}</td>
+      <td style="color:var(--cyan);font-size:12px;">${s.strategy}</td>
+      <td style="text-align:right;color:${scoreColor};font-weight:600;">${(s.score || 0).toFixed(3)}</td>
+      <td style="text-align:right;color:var(--text-2)">${((s.win_rate || 0) * 100).toFixed(0)}%</td>
+      <td style="text-align:right;color:var(--text-2)">${(s.sharpe || 0).toFixed(2)}</td>
+      <td style="text-align:right;color:${pnlColor}">${((s.avg_pnl_pct || 0) * 100).toFixed(2)}%</td>
+      <td style="text-align:right;color:var(--text-3)">${s.trade_count || 0}</td>
+    </tr>`;
+  }).join('') + '</tbody></table>';
+}
+
+function renderOutcomesTable() {
+  const outcomes = state.outcomes || [];
+  const tbody = $('outcomesBody');
+  const summary = $('outcomesSummary');
+
+  if (outcomes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--text-4);text-align:center;padding:20px;font-size:12px;">No trade outcomes yet. The feedback loop will populate this as trades open and close.</td></tr>';
+    summary.textContent = '';
+    return;
+  }
+
+  const closed = outcomes.filter(o => o.status === 'closed');
+  const open = outcomes.filter(o => o.status === 'open');
+  const totalPnl = closed.reduce((s, o) => s + (o.pnl || 0), 0);
+  const wins = closed.filter(o => o.pnl > 0).length;
+  const wr = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
+  const pnlClass = totalPnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+  summary.innerHTML = `<span class="${pnlClass}">$${totalPnl.toFixed(2)}</span> total &middot; ${wr}% win rate &middot; ${closed.length} closed &middot; ${open.length} open`;
+
+  function fmtDuration(s) {
+    if (!s) return '—';
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    if (s < 86400) return (s / 3600).toFixed(1) + 'h';
+    return (s / 86400).toFixed(1) + 'd';
+  }
+
+  tbody.innerHTML = outcomes.map(o => {
+    const pnlColor = o.pnl > 0 ? 'pnl-pos' : o.pnl < 0 ? 'pnl-neg' : 'pnl-zero';
+    const statusBg = o.status === 'open' ? 'rgba(34,211,255,0.1)' : 'rgba(255,255,255,0.04)';
+    const statusColor = o.status === 'open' ? 'var(--cyan)' : 'var(--text-4)';
+    return `<tr style="background:${statusBg};">
+      <td style="color:var(--text-1);font-weight:500;">${o.symbol}</td>
+      <td style="color:var(--cyan);font-size:11px;">${o.strategy}</td>
+      <td style="color:${o.side === 'buy' ? 'var(--green)' : 'var(--red)'};font-size:11px;">${o.side}</td>
+      <td style="text-align:right;color:var(--text-2);font-size:12px;">$${o.entry_price ? o.entry_price.toLocaleString(undefined,{maximumFractionDigits:2}) : '—'}</td>
+      <td style="text-align:right;color:var(--text-2);font-size:12px;">${o.exit_price ? '$' + o.exit_price.toLocaleString(undefined,{maximumFractionDigits:2}) : '—'}</td>
+      <td style="text-align:right;" class="${pnlColor}">$${o.pnl ? o.pnl.toFixed(2) : '—'}</td>
+      <td style="text-align:right;" class="${pnlColor}">${o.pnl_pct ? (o.pnl_pct * 100).toFixed(2) + '%' : '—'}</td>
+      <td style="text-align:right;color:var(--text-3);font-size:11px;">${fmtDuration(o.hold_duration_s)}</td>
+      <td><span style="color:${statusColor};font-size:11px;padding:2px 6px;border-radius:4px;background:${statusBg};">${o.status}</span></td>
+    </tr>`;
+  }).join('');
 }
 
 function renderPlan(plan) {

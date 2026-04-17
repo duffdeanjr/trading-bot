@@ -38,6 +38,24 @@ def _check_position_size(symbol: str, notional: float) -> tuple:
                 f"order would put {pct:.1%} of portfolio in {symbol}, "
                 f"exceeds MAX_PORTFOLIO_PCT={settings.MAX_PORTFOLIO_PCT:.0%}"
             )
+    # Also check existing position + new order won't exceed limits
+    with shared.positions_lock:
+        pos = shared.positions.get(symbol)
+    if pos is not None:
+        existing_mv = abs(float(getattr(pos, "market_value", 0) or
+                                (pos.get("market_val", 0) if isinstance(pos, dict) else 0)))
+        total_exposure = existing_mv + notional
+        if total_exposure > settings.MAX_POSITION_SIZE * 2:
+            return False, (
+                f"total exposure ${total_exposure:.0f} in {symbol} "
+                f"(existing ${existing_mv:.0f} + order ${notional:.0f}) "
+                f"exceeds 2x MAX_POSITION_SIZE"
+            )
+        if equity > 0 and total_exposure / equity > settings.MAX_PORTFOLIO_PCT * 1.5:
+            return False, (
+                f"total {symbol} exposure would be {total_exposure/equity:.1%} of portfolio, "
+                f"exceeds 1.5x MAX_PORTFOLIO_PCT"
+            )
     return True, ""
 
 # -- PDT check --
@@ -80,9 +98,53 @@ def _check_options_level(strategy: str) -> tuple:
         return False, f"strategy '{strategy}' requires OPTIONS_LEVEL=3"
     return True, ""
 
+# -- OCC symbol parser --
+def _parse_occ_expiry(symbol: str) -> datetime.date:
+    """Parse expiry date from OCC option symbol (e.g. TSLA260420C00372500 -> 2026-04-20).
+    OCC format: underlying + YYMMDD + C/P + strike*1000 (last 15 chars are YYMMDDCSSSSSSSS)."""
+    try:
+        # Last 15 chars: YYMMDD + C/P + 8-digit strike
+        tail = symbol[-15:]
+        exp_str = tail[:6]  # YYMMDD
+        return datetime.datetime.strptime(exp_str, "%y%m%d").date()
+    except (ValueError, IndexError):
+        return None
+
+# -- options auto-roll suggestions --
+_roll_suggested: set = set()  # track which symbols we've already suggested rolling
+
+def _suggest_auto_roll(symbol: str, pos, days_left: int, today: datetime.date):
+    """Suggest closing a near-expiry short option. Only suggests once per symbol per day."""
+    roll_key = (symbol, today.isoformat())
+    if roll_key in _roll_suggested:
+        return
+    _roll_suggested.add(roll_key)
+
+    qty = abs(float(getattr(pos, "qty", 0) or 0))
+    unrealized = float(getattr(pos, "unrealized_pl", 0) or 0)
+
+    if days_left <= 1:
+        # Expiring tomorrow or today — suggest closing, not rolling
+        msg = (f"AUTO-ROLL: {symbol} expires in {days_left}d, unrealized=${unrealized:.0f}, "
+               f"qty={qty} — suggesting close to avoid assignment risk")
+        logger.warning(f"risk: {msg}")
+        database.write_agent_log(ts=time.time(), agent="risk_manager", level="WARNING", message=msg)
+        # Emit a close signal via shared
+        with shared.cache_lock:
+            if not hasattr(shared, "auto_roll_signals"):
+                shared.auto_roll_signals = []
+            # Determine buy/sell to close: short positions need buy-to-close
+            side_to_close = "buy"  # short options close with buy
+            shared.auto_roll_signals.append({
+                "symbol": symbol,
+                "side": side_to_close,
+                "qty": qty,
+                "strategy": "auto_roll_close",
+                "reason": f"expiry in {days_left}d",
+            })
+
 # -- expiry watch --
 def _check_expiring_options():
-    warn_delta = datetime.timedelta(days=settings.EXPIRY_WARN_DAYS)
     today = datetime.date.today()
     with shared.positions_lock:
         positions = dict(shared.positions)
@@ -93,16 +155,21 @@ def _check_expiring_options():
         side = getattr(pos, "side", "long")
         if side == "long":
             continue
-        try:
-            exp_str = symbol[4:10]
-            exp_date = datetime.datetime.strptime(exp_str, "%y%m%d").date()
-            days_left = (exp_date - today).days
-            if days_left <= settings.EXPIRY_WARN_DAYS:
-                logger.warning(
-                    f"risk: short option {symbol} expires in {days_left} day(s) -> consider rolling"
-                )
-        except (ValueError, IndexError):
-            pass
+
+        exp_date = _parse_occ_expiry(symbol)
+        if exp_date is None:
+            continue
+
+        days_left = (exp_date - today).days
+        if days_left <= settings.EXPIRY_WARN_DAYS:
+            msg = f"short option {symbol} expires in {days_left} day(s) — consider rolling"
+            logger.warning(f"risk: {msg}")
+            database.write_agent_log(
+                ts=time.time(), agent="risk_manager", level="WARNING", message=msg
+            )
+            # Auto-roll suggestion for very near expiry
+            if days_left <= 2:
+                _suggest_auto_roll(symbol, pos, days_left, today)
 
 # -- portfolio heat (merged from portfolio_heat.py) --
 _heat_lock = threading.Lock()
@@ -241,6 +308,11 @@ def _check_circuit_breaker() -> tuple:
                 _circuit_breaker_ts = time.time()
                 logger.error(f"risk: CIRCUIT BREAKER TRIPPED - daily loss {daily_pnl_pct:.2%} "
                            f"exceeds -{MAX_DAILY_LOSS_PCT:.0%} threshold")
+                try:
+                    from agents.notifier import alert_circuit_breaker
+                    alert_circuit_breaker(f"daily loss {daily_pnl_pct:.2%}")
+                except Exception:
+                    pass
                 return False, f"circuit breaker: daily loss {daily_pnl_pct:.2%}"
 
     # Check consecutive losses from outcomes table
@@ -253,6 +325,11 @@ def _check_circuit_breaker() -> tuple:
                 _circuit_breaker_ts = time.time()
                 logger.error(f"risk: CIRCUIT BREAKER TRIPPED - {MAX_CONSECUTIVE_LOSSES} "
                            f"consecutive losing trades")
+                try:
+                    from agents.notifier import alert_circuit_breaker
+                    alert_circuit_breaker(f"{MAX_CONSECUTIVE_LOSSES} consecutive losses")
+                except Exception:
+                    pass
                 return False, f"circuit breaker: {MAX_CONSECUTIVE_LOSSES} consecutive losses"
     except Exception as e:
         logger.warning(f"risk: circuit breaker consecutive-loss check failed: {e}")
@@ -282,15 +359,11 @@ def _check_options_expiry_risk(signal: dict) -> tuple:
     symbol = signal.get("symbol", "")
     if not symbol or len(symbol) < 10:
         return True, ""
-    # Check if this is an option symbol (OCC format)
-    try:
-        exp_str = symbol[len(symbol)-15:len(symbol)-9]  # extract YYMMDD from OCC
-        exp_date = datetime.datetime.strptime(exp_str, "%y%m%d").date()
+    exp_date = _parse_occ_expiry(symbol)
+    if exp_date:
         days_left = (exp_date - datetime.date.today()).days
         if days_left <= settings.EXPIRY_WARN_DAYS:
             return False, f"BLOCKED: option {symbol} expires in {days_left}d -- too close to expiry"
-    except (ValueError, IndexError):
-        pass
     return True, ""
 
 # -- stop loss enforcement check --
@@ -359,6 +432,35 @@ def _check_options_buying_power(signal: dict) -> tuple:
     return True, ""
 
 
+# -- earnings blackout check --
+def _check_earnings_blackout(signal: dict) -> tuple:
+    """Block new option positions during earnings blackout period."""
+    symbol = signal.get("symbol", "")
+    side = signal.get("side", "")
+    strategy = signal.get("strategy", "")
+
+    # Only block new buys and options strategies during blackout
+    if side not in ("buy",) and strategy not in (
+        "iron_condor", "covered_call", "cash_secured_put", "calendar_spread"
+    ):
+        return True, ""
+
+    try:
+        from agents.earnings_calendar import is_in_blackout, get_next_earnings
+        if is_in_blackout(symbol):
+            earn_date = get_next_earnings(symbol)
+            return False, (
+                f"earnings blackout: {symbol} reports on {earn_date}, "
+                f"within {settings.EARNINGS_BLACKOUT_DAYS}d window"
+            )
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"risk: earnings check error for {symbol}: {e}")
+
+    return True, ""
+
+
 # -- main veto function --
 def approve(signal: dict) -> tuple:
     """
@@ -384,6 +486,7 @@ def approve(signal: dict) -> tuple:
         _check_options_buying_power(signal),
         _check_portfolio_heat(side),
         _check_stop_loss(signal),
+        _check_earnings_blackout(signal),
     ]
     for ok, reason in checks:
         if not ok:

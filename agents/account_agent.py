@@ -16,15 +16,27 @@ def _extract_strategy_tag(client_order_id):
 def _on_fill(event):
     """
     Fill callback from TradingStream.
+    Only processes actual fills (not new/accepted/cancelled events).
     Writes to DB immediately, tracks outcomes for feedback loop,
     then updates shared positions.
     """
     try:
+        # Only process actual fill events — skip new, accepted, cancelled, etc.
+        event_type = str(getattr(event, "event", "")).lower()
+        if event_type not in ("fill", "partial_fill"):
+            return
+
         order = event.order
         symbol = order.symbol
         side   = str(order.side)
         qty    = float(order.filled_qty or 0)
         price  = float(order.filled_avg_price or 0)
+
+        # Extra guard: skip if qty or price is zero (shouldn't happen on fills)
+        if qty <= 0 or price <= 0:
+            logger.warning(f"account_agent: fill event with zero qty/price for {symbol}, skipping")
+            return
+
         strategy = _extract_strategy_tag(order.client_order_id)
         now_iso  = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -98,19 +110,26 @@ def _on_fill(event):
                 ctx = None
 
         if side == "buy" and existing_qty <= 0:
-            # New long entry
+            # New long entry (no existing position or short position being reversed)
+            if existing_qty < 0:
+                # Close existing short first
+                database.close_outcome(symbol, strategy, price, now_iso)
             database.open_outcome(symbol, strategy, "buy", price, now_iso, qty,
                                   market_context=ctx)
-        elif side == "sell" and existing_qty <= qty:
-            # Closing a long position (full or partial exit)
-            database.close_outcome(symbol, strategy, price, now_iso)
+            logger.info(f"outcome: OPEN long {symbol} qty={qty} @ ${price:.2f}")
         elif side == "sell" and existing_qty <= 0:
-            # New short entry
+            # New short entry (no existing position)
             database.open_outcome(symbol, strategy, "sell", price, now_iso, qty,
                                   market_context=ctx)
+            logger.info(f"outcome: OPEN short {symbol} qty={qty} @ ${price:.2f}")
+        elif side == "sell" and existing_qty > 0:
+            # Closing a long position (full or partial exit)
+            database.close_outcome(symbol, strategy, price, now_iso)
+            logger.info(f"outcome: CLOSE long {symbol} qty={qty} @ ${price:.2f}")
         elif side == "buy" and existing_qty < 0:
             # Closing a short position
             database.close_outcome(symbol, strategy, price, now_iso)
+            logger.info(f"outcome: CLOSE short {symbol} qty={qty} @ ${price:.2f}")
 
         # Optimistic position update
         with shared.positions_lock:

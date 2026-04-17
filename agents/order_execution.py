@@ -208,12 +208,36 @@ def run():
         try:
             if shared.MARKET_OPEN and not shared.RATE_LIMITED:
                 _execute_toward_targets()
+                _execute_auto_rolls()
+                _update_trailing_stops()
         except Exception as e:
             logger.error(f"order_exec: target execution error: {e}")
         time.sleep(settings.TICK_INTERVAL)
 
     _cancel_all_on_shutdown()
     logger.info("order_exec: SHUTTING_DOWN - exiting")
+
+
+def _execute_auto_rolls():
+    """Process auto-roll close signals from risk_manager for near-expiry options."""
+    with shared.cache_lock:
+        signals = getattr(shared, "auto_roll_signals", [])
+        shared.auto_roll_signals = []
+
+    for sig in signals:
+        symbol = sig.get("symbol", "")
+        side = sig.get("side", "buy")
+        qty = sig.get("qty", 0)
+        if qty <= 0:
+            continue
+
+        logger.info(f"order_exec: auto-roll close {side} {qty} {symbol}")
+        place_order({
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "strategy": "auto_roll_close",
+        })
 
 
 def _execute_toward_targets():
@@ -294,12 +318,37 @@ def _execute_toward_targets():
         if _is_pending(symbol, side, "target_rebalance"):
             continue
 
+        # Compute ATR-based stop-loss and take-profit for buy orders
+        stop_px = None
+        tp_px = None
+        order_qty = None
+        if side == "buy":
+            try:
+                ohlcv = shared.build_ohlcv(symbol)
+                from agents import indicators
+                ind = indicators.compute_all(ohlcv)
+                atr_val = ind.get("atr")
+                hist_closes = ohlcv.get("closes", [])
+                ref_price = hist_closes[-1] if hist_closes else 0
+                if atr_val and atr_val > 0 and ref_price > 0:
+                    stop_px = round(ref_price - (atr_val * settings.ATR_STOP_MULT), 2)
+                    tp_px = round(ref_price + (atr_val * settings.ATR_TP_MULT), 2)
+                    order_qty = max(1, int(notional / ref_price))
+            except Exception as e:
+                logger.debug(f"order_exec: ATR bracket calc error for {symbol}: {e}")
+
         signal = {
             "symbol":   symbol,
             "side":     side,
             "notional": round(notional, 2),
             "strategy": "target_rebalance",
         }
+        # Add bracket params if computed (only for equities with integer qty)
+        if stop_px and tp_px and order_qty and "/" not in symbol:
+            signal["stop_price"] = stop_px
+            signal["take_profit_price"] = tp_px
+            signal["qty"] = order_qty
+            signal.pop("notional", None)  # bracket orders use qty, not notional
 
         logger.info(f"order_exec: rebalance {side} {symbol} "
                     f"gap={gap:+.1%} notional=${notional:.0f}"
@@ -308,3 +357,107 @@ def _execute_toward_targets():
 
         if side == "buy":
             bought_this_cycle += notional
+
+
+# ── trailing stop-loss management ────────────────────────────────
+# Tracks high-water mark for each position and adjusts stops upward.
+_trailing_stops: dict = {}  # symbol -> {"high_water": float, "stop_price": float}
+_trail_lock = threading.Lock()
+_TRAIL_CHECK_INTERVAL = 30  # seconds
+_last_trail_check = 0.0
+
+
+def _update_trailing_stops():
+    """
+    True trailing stop: as price moves up, stop ratchets higher.
+    Stop never moves down — only up. Uses TRAIL_ATR_MULT for distance.
+    Emits a sell order when current price breaches the trailing stop.
+    """
+    global _last_trail_check
+    now = time.time()
+    if now - _last_trail_check < _TRAIL_CHECK_INTERVAL:
+        return
+    _last_trail_check = now
+
+    if not settings.TRAILING_STOP:
+        return
+
+    positions = shared.get_positions_snapshot()
+    if not positions:
+        return
+
+    from agents import indicators
+
+    for symbol, pos in positions.items():
+        # Only trail long equity positions (not options, not crypto)
+        asset_class = getattr(pos, "asset_class", "us_equity")
+        if asset_class != "us_equity":
+            continue
+        qty = float(getattr(pos, "qty", 0) or 0)
+        if qty <= 0:
+            continue  # only trail longs
+
+        try:
+            current_price = float(getattr(pos, "current_price", 0) or 0)
+        except Exception:
+            continue
+        if current_price <= 0:
+            continue
+
+        # Compute ATR for this symbol
+        ohlcv = shared.build_ohlcv(symbol)
+        ind = indicators.compute_all(ohlcv)
+        atr_val = ind.get("atr")
+        if not atr_val or atr_val <= 0:
+            continue
+
+        trail_distance = atr_val * settings.TRAIL_ATR_MULT
+
+        with _trail_lock:
+            if symbol not in _trailing_stops:
+                # Initialize: high water = current price, stop = price - trail
+                _trailing_stops[symbol] = {
+                    "high_water": current_price,
+                    "stop_price": round(current_price - trail_distance, 2),
+                }
+                continue
+
+            entry = _trailing_stops[symbol]
+
+            # Update high-water mark
+            if current_price > entry["high_water"]:
+                entry["high_water"] = current_price
+                new_stop = round(current_price - trail_distance, 2)
+                # Stop only ratchets UP, never down
+                if new_stop > entry["stop_price"]:
+                    old_stop = entry["stop_price"]
+                    entry["stop_price"] = new_stop
+                    logger.debug(
+                        f"order_exec: trailing stop {symbol} ratcheted "
+                        f"${old_stop:.2f} -> ${new_stop:.2f} "
+                        f"(price=${current_price:.2f}, ATR={atr_val:.2f})"
+                    )
+
+            # Check if current price has breached the trailing stop
+            if current_price <= entry["stop_price"]:
+                logger.warning(
+                    f"order_exec: TRAILING STOP HIT {symbol} @ ${current_price:.2f} "
+                    f"(stop=${entry['stop_price']:.2f}, high=${entry['high_water']:.2f})"
+                )
+                # Emit sell order
+                if not _is_pending(symbol, "sell", "trailing_stop"):
+                    place_order({
+                        "symbol": symbol,
+                        "side": "sell",
+                        "qty": qty,
+                        "strategy": "trailing_stop",
+                    })
+                    # Remove from tracking after sell issued
+                    del _trailing_stops[symbol]
+
+    # Clean up: remove symbols no longer in positions
+    with _trail_lock:
+        tracked = set(_trailing_stops.keys())
+        held = set(positions.keys())
+        for sym in tracked - held:
+            del _trailing_stops[sym]

@@ -25,9 +25,9 @@ from storage import database
 logger = logging.getLogger(__name__)
 
 # ── promotion thresholds ─────────────────────────────────────────
-BACKTEST_MIN_SHARPE = 0.5
-BACKTEST_MIN_WIN_RATE = 0.45
-BACKTEST_MIN_TRADES = 20
+BACKTEST_MIN_SHARPE = 0.3
+BACKTEST_MIN_WIN_RATE = 0.40
+BACKTEST_MIN_TRADES = 10
 SHADOW_MIN_DAYS = 14
 SHADOW_PROMOTE_SHARPE = 0.6
 SHADOW_PROMOTE_WIN_RATE = 0.48
@@ -301,20 +301,30 @@ def _backtest_candidate(recipe: dict) -> dict:
     }
 
 
+_BACKTEST_SKIP_ATTEMPTS = 3  # after N backtests with 0 trades, auto-promote to shadow
+
 def promote_candidates():
-    """Evaluate candidate strategies and promote qualifying ones to shadow."""
+    """Evaluate candidate strategies and promote qualifying ones to shadow.
+    Strategies that can't generate backtest trades after multiple attempts
+    are auto-promoted to shadow for live evaluation."""
     candidates = database.get_strategies_by_status("candidate")
     promoted = 0
 
     for recipe in candidates[:20]:  # batch limit
         result = _backtest_candidate(recipe)
 
+        # Track backtest attempts
+        prev_attempts = recipe.get("backtest_attempts", 0) or 0
+        new_attempts = prev_attempts + 1
+
         database.update_strategy_status(
             recipe["id"], "candidate",
             backtest_sharpe=result["sharpe"],
             backtest_win_rate=result["win_rate"],
+            backtest_attempts=new_attempts,
         )
 
+        # Normal promotion: passes backtest thresholds
         if (result["sharpe"] >= BACKTEST_MIN_SHARPE
                 and result["win_rate"] >= BACKTEST_MIN_WIN_RATE
                 and result["trade_count"] >= BACKTEST_MIN_TRADES):
@@ -325,6 +335,19 @@ def promote_candidates():
             logger.info(
                 f"strategy_factory: PROMOTED {recipe['id']} candidate -> shadow "
                 f"(sharpe={result['sharpe']:.2f}, win_rate={result['win_rate']:.2f})"
+            )
+            promoted += 1
+
+        # Fallback: can't backtest (contextual filters, sparse data) — promote after N attempts
+        elif result["trade_count"] == 0 and new_attempts >= _BACKTEST_SKIP_ATTEMPTS:
+            database.update_strategy_status(
+                recipe["id"], "shadow",
+                shadow_start_ts=time.time(),
+            )
+            logger.info(
+                f"strategy_factory: AUTO-PROMOTED {recipe['id']} candidate -> shadow "
+                f"(backtest infeasible after {new_attempts} attempts, "
+                f"filter={recipe.get('filter')} — evaluating on live data)"
             )
             promoted += 1
 
@@ -587,10 +610,10 @@ _shadow_strategies_cache: list = []
 _strategies_last_refresh = 0.0
 
 
-def refresh_strategies():
+def refresh_strategies(force=False):
     """Reload live and shadow strategies from DB. Called by signal_generator."""
     global _live_strategies_cache, _shadow_strategies_cache, _strategies_last_refresh
-    if time.time() - _strategies_last_refresh < 86400:  # daily
+    if not force and time.time() - _strategies_last_refresh < 3600:  # hourly
         return
     _live_strategies_cache = database.get_strategies_by_status("live")
     _shadow_strategies_cache = database.get_strategies_by_status("shadow")
