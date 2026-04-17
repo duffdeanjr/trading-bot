@@ -392,13 +392,13 @@ def update_plan(signals: list, trigger: str = "signal_batch") -> dict:
     if plan["stance"] != old_stance:
         notes.append(f"stance: {old_stance} -> {plan['stance']}")
 
-    # Keep 30% cash minimum for options buying power
+    # Cash target by regime stance (configurable in settings.py)
     if plan["stance"] == "risk-off":
-        plan["cash_target_pct"] = 0.40
+        plan["cash_target_pct"] = settings.CASH_TARGET_RISK_OFF
     elif plan["stance"] == "risk-on":
-        plan["cash_target_pct"] = 0.30
+        plan["cash_target_pct"] = settings.CASH_TARGET_RISK_ON
     else:
-        plan["cash_target_pct"] = 0.35
+        plan["cash_target_pct"] = settings.CASH_TARGET_NEUTRAL
 
     new_exclusions = _check_corp_action_exclusions(plan, dirty_snapshot)
     for sym in new_exclusions:
@@ -553,8 +553,8 @@ def _scheduled_refresh():
             if next_open and (next_open - today).days > 1:
                 notes.append(f"market holiday: next open {next_open}, raising cash target")
                 plan["cash_target_pct"] = min(plan["cash_target_pct"] + 0.05, 0.25)
-        except Exception:
-            pass  # don't let calendar parsing break the refresh
+        except Exception as e:
+            logger.debug(f"plan_manager: calendar parsing error (non-fatal): {e}")
 
     with shared.cache_lock:
         corp_actions = list(shared.corp_actions)

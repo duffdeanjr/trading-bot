@@ -27,15 +27,15 @@ from storage import database
 
 logger = logging.getLogger(__name__)
 
-# ── constants ────────────────────────────────────────────────────
+# ── constants (configurable via settings.py) ─────────────────────
 N_FEATURES = 15
-DEFAULT_ALPHA = 0.3
-MIN_ALPHA = 0.1
-ALPHA_DECAY_RATE = 0.995
-ALPHA_DECAY_THRESHOLD = 200  # total observations before decay kicks in
+DEFAULT_ALPHA = settings.BANDIT_DEFAULT_ALPHA
+MIN_ALPHA = settings.BANDIT_MIN_ALPHA
+ALPHA_DECAY_RATE = settings.BANDIT_ALPHA_DECAY_RATE
+ALPHA_DECAY_THRESHOLD = settings.BANDIT_ALPHA_DECAY_THRESHOLD
 COLD_START_THRESHOLD = 10    # observations before bandit adjusts
-SHADOW_MIN_DAYS = 30
-SHADOW_MIN_OBS = 200
+SHADOW_MIN_DAYS = 7          # reduced from 30 for faster learning (paper trading)
+SHADOW_MIN_OBS = 50          # reduced from 200 — outcomes now flowing
 REWARD_WINDOW_S = 7200       # 2 hours — match decisions to outcomes
 HARVEST_INTERVAL = 600       # 10 minutes
 

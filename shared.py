@@ -230,6 +230,7 @@ def publish(event_name: str, payload: dict):
 # ── OHLCV utility (shared to avoid duplication across agents) ──
 def build_ohlcv(symbol: str) -> dict:
     """Extract OHLCV arrays from historical cache for indicator computation.
+    Falls back to database if shared cache is empty.
     Returns dict with keys: closes, highs, lows, opens, volumes.
     Thread-safe — acquires cache_lock internally.
     """
@@ -237,7 +238,7 @@ def build_ohlcv(symbol: str) -> dict:
         hist = historical_ohlcv.get(symbol, {})
     if isinstance(hist, dict) and "closes" in hist:
         return hist
-    if isinstance(hist, list):
+    if isinstance(hist, list) and hist:
         result = {"closes": [], "highs": [], "lows": [], "opens": [], "volumes": []}
         for b in hist:
             try:
@@ -249,6 +250,26 @@ def build_ohlcv(symbol: str) -> dict:
             except Exception:
                 continue
         return result
+
+    # Fallback: load from database if shared cache is empty
+    try:
+        from storage import database
+        bars = database.read_bars(symbol)
+        if bars:
+            result = {"closes": [], "highs": [], "lows": [], "opens": [], "volumes": []}
+            for b in bars:
+                result["closes"].append(float(b.get("close", 0) or 0))
+                result["highs"].append(float(b.get("high", 0) or 0))
+                result["lows"].append(float(b.get("low", 0) or 0))
+                result["opens"].append(float(b.get("open", 0) or 0))
+                result["volumes"].append(float(b.get("volume", 0) or 0))
+            # Cache it for next time
+            with cache_lock:
+                historical_ohlcv[symbol] = result
+            return result
+    except Exception:
+        pass
+
     return {}
 
 
@@ -258,3 +279,27 @@ def extract_strategy_tag(client_order_id) -> str:
     if client_order_id and "::" in str(client_order_id):
         return str(client_order_id).split("::")[0]
     return "unknown"
+
+
+# ── Crypto symbol normalization ────────────────────────────────
+# Alpaca uses "BTC/USD" for trading but positions/news use "BTCUSD".
+# This pair of helpers ensures consistent matching across the system.
+
+def normalize_crypto(symbol: str) -> str:
+    """Normalize crypto symbol to slash format (BTC/USD). Idempotent."""
+    if "/" in symbol:
+        return symbol
+    # Common crypto pairs: BTCUSD -> BTC/USD, ETHUSD -> ETH/USD, PAXGUSD -> PAXG/USD
+    if symbol.endswith("USD") and len(symbol) >= 6:
+        return symbol[:-3] + "/USD"
+    return symbol
+
+
+def normalize_crypto_noslash(symbol: str) -> str:
+    """Normalize crypto symbol to no-slash format (BTCUSD). Idempotent."""
+    return symbol.replace("/", "")
+
+
+def get_heartbeats() -> dict:
+    """Return a copy of agent heartbeats. Safe to read without lock."""
+    return dict(AGENT_HEARTBEATS)

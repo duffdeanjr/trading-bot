@@ -269,7 +269,7 @@ def _call_claude_api(payload: dict, system_prompt: str) -> dict:
 
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
-        logger.warning("plan_reviewer: ANTHROPIC_API_KEY not set, skipping review")
+        logger.info("plan_reviewer: ANTHROPIC_API_KEY not set — add to .env to enable AI plan review")
         return {}
 
     client = anthropic.Anthropic(api_key=api_key)

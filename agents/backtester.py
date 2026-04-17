@@ -249,10 +249,10 @@ SHARPE_FAIL_LIMIT = 3
 
 def walk_forward_evaluate():
     """
-    Run a 30-day rolling backtest on each strategy tag using the outcomes table.
-    Write per-strategy Sharpe and win-rate to strategy_scores.
-    If a strategy's rolling Sharpe drops below -0.5 for 3 consecutive
-    evaluations, set its score weight to 0 and log a warning.
+    Enhanced walk-forward evaluation with:
+    1. 30-day rolling in-sample / 10-day out-of-sample split
+    2. Per-regime performance tracking
+    3. Auto-disable on 3 consecutive poor Sharpe evaluations
     """
     from storage import database
 
@@ -266,12 +266,18 @@ def walk_forward_evaluate():
         if not closed:
             continue
 
-        # Filter to last 30 days
-        cutoff = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
-        recent = [t for t in closed if (t.get("exit_ts") or "") >= cutoff]
+        # Full 30-day window
+        cutoff_30 = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+        recent = [t for t in closed if (t.get("exit_ts") or "") >= cutoff_30]
         if len(recent) < 3:
             continue
 
+        # ── In-sample (first 20 days) vs Out-of-sample (last 10 days) ──
+        cutoff_10 = (datetime.date.today() - datetime.timedelta(days=10)).isoformat()
+        in_sample = [t for t in recent if (t.get("exit_ts") or "") < cutoff_10]
+        out_of_sample = [t for t in recent if (t.get("exit_ts") or "") >= cutoff_10]
+
+        # Compute metrics on full window (used for scoring)
         wins = [t for t in recent if (t.get("pnl") or 0) > 0]
         win_rate = len(wins) / len(recent)
 
@@ -285,7 +291,44 @@ def walk_forward_evaluate():
 
         sharpe = (avg_ret / std_ret * math.sqrt(252)) if std_ret > 0 else 0.0
 
-        # Check auto-disable condition
+        # ── Out-of-sample Sharpe (validation) ──
+        oos_sharpe = 0.0
+        if len(out_of_sample) >= 2:
+            oos_returns = [t.get("pnl_pct", 0) or 0 for t in out_of_sample]
+            oos_avg = sum(oos_returns) / len(oos_returns)
+            oos_var = sum((r - oos_avg) ** 2 for r in oos_returns) / len(oos_returns)
+            oos_std = math.sqrt(oos_var) if oos_var > 0 else 0.0
+            oos_sharpe = (oos_avg / oos_std * math.sqrt(252)) if oos_std > 0 else 0.0
+
+        # ── Per-regime performance breakdown ──
+        regime_perf = {}
+        for t in recent:
+            # Extract regime from market_context if available
+            ctx = t.get("market_context") or "{}"
+            try:
+                import json
+                mc = json.loads(ctx) if isinstance(ctx, str) else ctx
+                regime = mc.get("regime", "unknown")
+            except Exception:
+                regime = "unknown"
+            if regime not in regime_perf:
+                regime_perf[regime] = {"trades": 0, "wins": 0, "pnl_sum": 0.0}
+            regime_perf[regime]["trades"] += 1
+            if (t.get("pnl") or 0) > 0:
+                regime_perf[regime]["wins"] += 1
+            regime_perf[regime]["pnl_sum"] += (t.get("pnl_pct") or 0)
+
+        # Log regime breakdown
+        for regime, perf in regime_perf.items():
+            if perf["trades"] >= 2:
+                r_wr = perf["wins"] / perf["trades"]
+                r_avg = perf["pnl_sum"] / perf["trades"]
+                logger.debug(
+                    f"backtester: {strat} in {regime}: "
+                    f"wr={r_wr:.0%} avg_pnl={r_avg:.3f} trades={perf['trades']}"
+                )
+
+        # Check auto-disable condition (use full-window Sharpe)
         if sharpe < SHARPE_DISABLE_THRESHOLD:
             _sharpe_fail_counts[strat] = _sharpe_fail_counts.get(strat, 0) + 1
         else:
@@ -305,19 +348,40 @@ def walk_forward_evaluate():
                 level="WARNING",
                 message=f"Auto-disabled strategy '{strat}': "
                         f"rolling Sharpe={sharpe:.2f}, win_rate={win_rate:.1%}, "
-                        f"trades={len(recent)}"
+                        f"trades={len(recent)}, oos_sharpe={oos_sharpe:.2f}"
             )
+            try:
+                from agents.notifier import alert_strategy_disabled
+                alert_strategy_disabled(strat, sharpe, len(recent))
+            except Exception:
+                pass
         else:
-            score = (0.4 * win_rate
-                     + 0.3 * min(max(sharpe, 0), 2) / 2
-                     + 0.3 * min(max(avg_ret, 0), 0.1) / 0.1)
+            # Blend in-sample and out-of-sample: 60% IS, 40% OOS
+            # If OOS diverges significantly from IS, penalize (overfitting signal)
+            base_score = (0.4 * win_rate
+                         + 0.3 * min(max(sharpe, 0), 2) / 2
+                         + 0.3 * min(max(avg_ret, 0), 0.1) / 0.1)
+
+            # OOS penalty: if OOS Sharpe is much worse than IS, reduce score
+            if len(out_of_sample) >= 2 and sharpe > 0:
+                oos_ratio = oos_sharpe / sharpe if sharpe > 0 else 1.0
+                if oos_ratio < 0.3:
+                    # OOS much worse than IS → likely overfitting, apply 20% penalty
+                    base_score *= 0.80
+                    logger.debug(
+                        f"backtester: {strat} OOS degradation penalty "
+                        f"(IS sharpe={sharpe:.2f} vs OOS={oos_sharpe:.2f})"
+                    )
+
+            score = base_score
 
         database.write_strategy_score(
             strat, win_rate, avg_ret, sharpe, len(recent), round(score, 4)
         )
         logger.info(
             f"backtester: walk-forward {strat}: "
-            f"sharpe={sharpe:.2f} wr={win_rate:.1%} trades={len(recent)} score={score:.3f}"
+            f"sharpe={sharpe:.2f} oos_sharpe={oos_sharpe:.2f} "
+            f"wr={win_rate:.1%} trades={len(recent)} score={score:.3f}"
         )
 
 

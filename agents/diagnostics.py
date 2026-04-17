@@ -3,10 +3,13 @@ import logging
 import shared
 from config import settings
 from alpaca_local import stream as alpaca_stream
+from storage import database
 
 logger = logging.getLogger(__name__)
 
-_HEARTBEAT_TIMEOUT  = 60   # seconds ? alert if any stream silent for this long
+_HEARTBEAT_TIMEOUT  = 60   # seconds — alert if any stream silent for this long
+_WARN_COOLDOWN      = 300  # seconds — suppress repeat warnings for same stream
+_last_warned: dict  = {}   # stream_name -> last warning timestamp
 _RECONNECT_FLAP_MAX = 5    # reconnects in _RECONNECT_WINDOW triggers alert
 _RECONNECT_WINDOW   = 3600 # seconds (1 hour)
 
@@ -21,7 +24,14 @@ def _check_stream_health():
 
     for name, ts in beats.items():
         if ts > 0 and (now - ts) > _HEARTBEAT_TIMEOUT:
-            logger.warning(f"diagnostics: stream '{name}' silent for {now-ts:.0f}s")
+            # Cooldown: only warn once per _WARN_COOLDOWN seconds per stream
+            last = _last_warned.get(name, 0)
+            if now - last < _WARN_COOLDOWN:
+                continue
+            _last_warned[name] = now
+            msg = f"stream '{name}' silent for {now-ts:.0f}s"
+            logger.warning(f"diagnostics: {msg}")
+            database.write_agent_log(ts=now, agent="diagnostics", level="WARNING", message=msg)
 
     # Reconnect flap detection (diagnostic improvement)
     global _reconnect_window_start, _last_reconnect_counts
@@ -35,10 +45,10 @@ def _check_stream_health():
         for name, count in recons.items():
             delta = count - _last_reconnect_counts.get(name, 0)
             if delta >= _RECONNECT_FLAP_MAX:
-                logger.error(
-                    f"diagnostics: stream '{name}' reconnected {delta}x in "
-                    f"{window_elapsed/60:.0f} min ? possible connection instability"
-                )
+                msg = (f"stream '{name}' reconnected {delta}x in "
+                       f"{window_elapsed/60:.0f} min — possible connection instability")
+                logger.error(f"diagnostics: {msg}")
+                database.write_agent_log(ts=now, agent="diagnostics", level="ERROR", message=msg)
 
 def _check_alpaca_status():
     """Poll status.alpaca.markets for outage indicators."""
@@ -77,10 +87,12 @@ def _check_agent_health():
     for agent, info in errors.items():
         count = info.get("count", 0)
         if count > 0:
-            logger.error(
-                f"diagnostics: agent '{agent}' has crashed {count}x, "
-                f"last error: {info.get('last_error', '')} "
-                f"at {info.get('last_ts', 0):.0f}"
+            msg = (f"agent '{agent}' crashed {count}x, "
+                   f"last error: {info.get('last_error', '')} "
+                   f"at {info.get('last_ts', 0):.0f}")
+            logger.error(f"diagnostics: {msg}")
+            database.write_agent_log(
+                ts=time.time(), agent="diagnostics", level="ERROR", message=msg
             )
 
 def _check_paper_mode():
@@ -93,6 +105,49 @@ def _check_paper_mode():
     elif acct_type and not settings.IS_PAPER and "paper" in acct_type:
         logger.error("diagnostics: IS_PAPER=False but account appears to be PAPER ? check .env")
 
+_PRUNE_INTERVAL = 3600       # prune positions table every hour
+_WAL_CHECKPOINT_INTERVAL = 1800  # WAL checkpoint every 30 minutes
+_last_prune = 0.0
+_last_wal_checkpoint = 0.0
+
+def _prune_positions():
+    """Keep only the latest 1000 position snapshots to prevent table bloat."""
+    global _last_prune
+    now = time.time()
+    if now - _last_prune < _PRUNE_INTERVAL:
+        return
+    _last_prune = now
+    try:
+        conn = database.get_connection()
+        count_before = conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0]
+        if count_before > 5000:
+            # Keep latest 1000 rows, delete the rest
+            conn.execute("""
+                DELETE FROM positions WHERE rowid NOT IN (
+                    SELECT rowid FROM positions ORDER BY ts DESC LIMIT 1000
+                )
+            """)
+            conn.commit()
+            count_after = conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0]
+            logger.info(f"diagnostics: pruned positions table {count_before} -> {count_after} rows")
+    except Exception as e:
+        logger.debug(f"diagnostics: positions prune error: {e}")
+
+def _wal_checkpoint():
+    """Periodic WAL checkpoint to keep WAL file size in check."""
+    global _last_wal_checkpoint
+    now = time.time()
+    if now - _last_wal_checkpoint < _WAL_CHECKPOINT_INTERVAL:
+        return
+    _last_wal_checkpoint = now
+    try:
+        conn = database.get_connection()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        logger.debug("diagnostics: WAL checkpoint completed")
+    except Exception as e:
+        logger.debug(f"diagnostics: WAL checkpoint error: {e}")
+
+
 @shared.register_agent("diagnostics", phase=6)
 def run():
     logger.info("diagnostics: starting")
@@ -104,6 +159,8 @@ def run():
         _check_agent_health()
         _check_rate_limit()
         _check_paper_mode()
+        _prune_positions()
+        _wal_checkpoint()
 
         # Check Alpaca status page every ~5 minutes (not every tick)
         status_check_counter += 1
@@ -111,7 +168,7 @@ def run():
             _check_alpaca_status()
             status_check_counter = 0
 
-        # Diagnostics always runs at TICK_INTERVAL ? never overnight sleep
+        # Diagnostics always runs at TICK_INTERVAL — never overnight sleep
         time.sleep(settings.TICK_INTERVAL)
 
-    logger.info("diagnostics: SHUTTING_DOWN ? exiting")
+    logger.info("diagnostics: SHUTTING_DOWN — exiting")

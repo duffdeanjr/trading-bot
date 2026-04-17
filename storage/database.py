@@ -210,6 +210,7 @@ def init_db():
                 target_regime               TEXT,
                 backtest_sharpe             REAL,
                 backtest_win_rate           REAL,
+                backtest_attempts           INTEGER DEFAULT 0,
                 shadow_start_ts             REAL,
                 shadow_sharpe               REAL,
                 shadow_days                 INTEGER DEFAULT 0,
@@ -902,14 +903,19 @@ def get_shadow_signal_stats(strategy_id):
 # -- retention cleanup --
 
 def purge_old_data(days=90):
-    """Delete data older than N days from large tables."""
+    """Delete data older than N days from large tables.
+    Uses date-only cutoff for corporate_actions (stores date strings)
+    and ISO cutoff for others (store ISO timestamps).
+    """
     try:
-        cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat()
+        cutoff_iso = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat()
+        cutoff_date = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
         conn = get_connection()
         with _lock:
-            conn.execute("DELETE FROM historical_bars WHERE ts < ?", (cutoff,))
-            conn.execute("DELETE FROM news WHERE ts < ?", (cutoff,))
-            conn.execute("DELETE FROM corporate_actions WHERE ts < ?", (cutoff,))
+            conn.execute("DELETE FROM historical_bars WHERE ts < ?", (cutoff_iso,))
+            conn.execute("DELETE FROM news WHERE ts < ?", (cutoff_iso,))
+            # corporate_actions.ts stores date strings like '2026-01-15', not ISO datetimes
+            conn.execute("DELETE FROM corporate_actions WHERE ts < ?", (cutoff_date,))
             conn.commit()
         logger.info(f"database: purged data older than {days} days")
     except Exception as e:

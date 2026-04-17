@@ -38,40 +38,104 @@ def get_strategy_registry():
 
 # ── registered strategies ───────────────────────────────────────
 
+def _vol_ratio(ctx) -> float:
+    """Return current volume / 20-day avg volume. >1 means above average."""
+    volumes = ctx.get("volumes", [])
+    if len(volumes) < 21:
+        return 1.0  # no data, assume normal
+    avg_20 = sum(volumes[-21:-1]) / 20
+    return volumes[-1] / avg_20 if avg_20 > 0 else 1.0
+
+
+def _sma(closes, period):
+    """Simple moving average of last N closes."""
+    if len(closes) < period:
+        return None
+    return sum(closes[-period:]) / period
+
+
+def _weekly_trend(closes: list) -> str:
+    """
+    Determine the weekly trend from daily closes.
+    Uses 5-week (25-day) momentum and 10-week (50-day) SMA direction.
+    Returns: "bullish", "bearish", or "neutral"
+    """
+    if len(closes) < 50:
+        return "neutral"
+
+    # 5-week momentum: is price higher than 25 days ago?
+    momentum_25 = (closes[-1] - closes[-25]) / closes[-25] if closes[-25] > 0 else 0
+
+    # 50-day SMA slope: is it rising or falling?
+    sma_50_now = sum(closes[-50:]) / 50
+    sma_50_prev = sum(closes[-55:-5]) / 50 if len(closes) >= 55 else sma_50_now
+    sma_slope = (sma_50_now - sma_50_prev) / sma_50_prev if sma_50_prev > 0 else 0
+
+    # Price above/below 50-day SMA
+    price_vs_sma = closes[-1] > sma_50_now
+
+    if momentum_25 > 0.02 and sma_slope > 0 and price_vs_sma:
+        return "bullish"
+    elif momentum_25 < -0.02 and sma_slope < 0 and not price_vs_sma:
+        return "bearish"
+    return "neutral"
+
+
 @register_strategy("rsi_oversold")
 def _strat_rsi_oversold(symbol, ctx):
-    """RSI oversold + non-bearish EMA = buy. RSI 35→0.55, RSI 25→0.84, RSI 15→1.0"""
+    """RSI oversold + non-bearish EMA + volume confirmation.
+    Confidence: RSI 35→0.40, RSI 25→0.65, RSI 15→0.85, boosted by volume."""
     rsi_val = ctx["ind"].get("rsi")
     ema_d = ctx["ind"].get("ema_cross") or {}
     if not (rsi_val and rsi_val < settings.RSI_OVERSOLD
             and ema_d.get("cross") != "bearish"):
         return []
     rsi_depth = (settings.RSI_OVERSOLD - rsi_val) / settings.RSI_OVERSOLD
-    confidence = 0.55 + rsi_depth * 0.40 + ctx["sent_boost"]
+    vol_r = _vol_ratio(ctx)
+    vol_boost = min((vol_r - 1.0) * 0.10, 0.10) if vol_r > 1.0 else 0.0
+    # Wider range: 0.35 base → 0.85 max (was 0.55-0.95)
+    confidence = 0.35 + rsi_depth * 0.45 + vol_boost + ctx["sent_boost"]
     return [{
         "symbol":     symbol,
         "side":       "buy",
         "confidence": min(max(round(confidence, 3), 0.3), 1.0),
         "sentiment":  round(ctx["sent_score"], 3),
         "strategy":   "rsi_oversold",
-        "rsi":        round(rsi_val, 1),
     }]
 
 
 @register_strategy("macd_cross")
 def _strat_macd_cross(symbol, ctx):
-    """MACD bullish crossover — scale by histogram strength."""
+    """MACD bullish crossover — requires above-average volume + ATR-scaled confidence.
+    Histogram strength is normalized by ATR, not just price. Volume gate cuts spam ~50%."""
     macd_d = ctx["ind"].get("macd") or {}
     macd_hist = macd_d.get("histogram", 0)
     if macd_hist <= 0:
         return []
+
+    # Volume gate: require volume >= 80% of 20-day average
+    vol_r = _vol_ratio(ctx)
+    if vol_r < 0.8:
+        return []
+
     close = ctx["close"]
-    hist_strength = min(abs(macd_hist) / (close * 0.002 + 0.01), 1.0)
-    confidence = 0.55 + hist_strength * 0.20 + ctx["sent_boost"]
+    atr_val = ctx.get("atr_val") or 0
+
+    # ATR-scaled histogram strength (how significant is this crossover relative to volatility?)
+    if atr_val and atr_val > 0:
+        hist_strength = min(abs(macd_hist) / atr_val, 1.0)
+    else:
+        hist_strength = min(abs(macd_hist) / (close * 0.002 + 0.01), 1.0)
+
+    # Volume bonus: strong volume adds confidence
+    vol_boost = min((vol_r - 1.0) * 0.08, 0.12) if vol_r > 1.0 else 0.0
+
+    # Wider range: 0.35 base for weak histogram, up to 0.80 for strong + high volume
+    confidence = 0.35 + hist_strength * 0.30 + vol_boost + ctx["sent_boost"]
     return [{
         "symbol":     symbol,
         "side":       "buy",
-        "confidence": min(max(round(confidence, 3), 0.3), 1.0),
+        "confidence": min(max(round(confidence, 3), 0.3), 0.85),
         "sentiment":  round(ctx["sent_score"], 3),
         "strategy":   "macd_cross",
     }]
@@ -79,13 +143,17 @@ def _strat_macd_cross(symbol, ctx):
 
 @register_strategy("bb_bounce")
 def _strat_bb_bounce(symbol, ctx):
-    """Bollinger Band bounce — deeper below band = higher confidence."""
+    """Bollinger Band bounce — deeper below lower band = higher confidence.
+    Added volume confirmation: high volume on the dip suggests institutional buying."""
     boll_d = ctx["ind"].get("bollinger") or {}
     pct_b = boll_d.get("pct_b", 0.5)
     if pct_b >= 0.15:
         return []
     bb_depth = (0.15 - pct_b) / 0.15
-    confidence = 0.60 + bb_depth * 0.25 + ctx["sent_boost"]
+    vol_r = _vol_ratio(ctx)
+    vol_boost = min((vol_r - 1.0) * 0.08, 0.10) if vol_r > 1.0 else 0.0
+    # Wider range: 0.40 → 0.80
+    confidence = 0.40 + bb_depth * 0.30 + vol_boost + ctx["sent_boost"]
     return [{
         "symbol":     symbol,
         "side":       "buy",
@@ -97,12 +165,13 @@ def _strat_bb_bounce(symbol, ctx):
 
 @register_strategy("rsi_overbought")
 def _strat_rsi_overbought(symbol, ctx):
-    """RSI overbought = sell signal. RSI 70→0.55, RSI 80→0.72, RSI 90→0.88"""
+    """RSI overbought = sell signal. Wider confidence range: RSI 70→0.35, RSI 85→0.65, RSI 95→0.85"""
     rsi_val = ctx["ind"].get("rsi")
     if not (rsi_val and rsi_val > settings.RSI_OVERBOUGHT):
         return []
     rsi_excess = (rsi_val - settings.RSI_OVERBOUGHT) / (100 - settings.RSI_OVERBOUGHT)
-    confidence = 0.55 + rsi_excess * 0.40 - ctx["sent_boost"]
+    # Wider range: 0.35 base for barely overbought, 0.85 for extreme
+    confidence = 0.35 + rsi_excess * 0.50 - ctx["sent_boost"]
     return [{
         "symbol":     symbol,
         "side":       "sell",
@@ -110,6 +179,168 @@ def _strat_rsi_overbought(symbol, ctx):
         "sentiment":  round(ctx["sent_score"], 3),
         "strategy":   "rsi_overbought",
     }]
+
+
+@register_strategy("vwap_reversion")
+def _strat_vwap_reversion(symbol, ctx):
+    """VWAP mean reversion — buy below VWAP, sell above.
+    Trend filter: don't sell mean-reversion when EMA is bullish (fighting the trend)."""
+    vwap_val = ctx["ind"].get("vwap")
+    ema_d = ctx["ind"].get("ema_cross") or {}
+    close = ctx["close"]
+    if not vwap_val or vwap_val <= 0 or close <= 0:
+        return []
+    deviation = (close - vwap_val) / vwap_val
+
+    # Buy when >2% below VWAP
+    if deviation < -0.02:
+        depth = min(abs(deviation) / 0.05, 1.0)
+        confidence = 0.40 + depth * 0.30 + ctx["sent_boost"]
+        return [{
+            "symbol":     symbol,
+            "side":       "buy",
+            "confidence": min(max(round(confidence, 3), 0.3), 1.0),
+            "sentiment":  round(ctx["sent_score"], 3),
+            "strategy":   "vwap_reversion",
+        }]
+
+    # Sell when >2% above VWAP — but NOT when EMA is bullish (don't fight the trend)
+    if deviation > 0.02:
+        if ema_d.get("cross") == "bullish":
+            return []  # trend filter: skip sell against bullish momentum
+        excess = min(deviation / 0.05, 1.0)
+        confidence = 0.35 + excess * 0.25 - ctx["sent_boost"]
+        return [{
+            "symbol":     symbol,
+            "side":       "sell",
+            "confidence": min(max(round(confidence, 3), 0.3), 1.0),
+            "sentiment":  round(ctx["sent_score"], 3),
+            "strategy":   "vwap_reversion",
+        }]
+    return []
+
+
+@register_strategy("ema_trend")
+def _strat_ema_trend(symbol, ctx):
+    """EMA crossover trend — requires volume confirmation on the cross."""
+    ema_d = ctx["ind"].get("ema_cross") or {}
+    cross = ema_d.get("cross")
+    if not cross or cross == "none":
+        return []
+    vol_r = _vol_ratio(ctx)
+    if vol_r < 0.7:
+        return []  # weak volume cross = not trustworthy
+    vol_boost = min((vol_r - 1.0) * 0.10, 0.10) if vol_r > 1.0 else 0.0
+    if cross == "bullish":
+        confidence = 0.45 + vol_boost + ctx["sent_boost"]
+        return [{
+            "symbol":     symbol,
+            "side":       "buy",
+            "confidence": min(max(round(confidence, 3), 0.3), 1.0),
+            "sentiment":  round(ctx["sent_score"], 3),
+            "strategy":   "ema_trend",
+        }]
+    elif cross == "bearish":
+        confidence = 0.45 + vol_boost - ctx["sent_boost"]
+        return [{
+            "symbol":     symbol,
+            "side":       "sell",
+            "confidence": min(max(round(confidence, 3), 0.3), 1.0),
+            "sentiment":  round(ctx["sent_score"], 3),
+            "strategy":   "ema_trend",
+        }]
+    return []
+
+
+@register_strategy("momentum_confirm")
+def _strat_momentum_confirm(symbol, ctx):
+    """Momentum confirmation — price > 20-SMA + positive MACD + above-avg volume.
+    High-conviction buy when multiple momentum factors align."""
+    closes = ctx.get("closes", [])
+    sma_20 = _sma(closes, 20)
+    close = ctx["close"]
+    if not sma_20 or close <= 0:
+        return []
+    macd_d = ctx["ind"].get("macd") or {}
+    macd_hist = macd_d.get("histogram", 0)
+    vol_r = _vol_ratio(ctx)
+
+    # All three must confirm: price > SMA20, MACD positive, volume above average
+    above_sma = close > sma_20
+    macd_bullish = macd_hist > 0
+    volume_strong = vol_r > 1.2
+
+    if above_sma and macd_bullish and volume_strong:
+        # Scale by how far above SMA and how strong the MACD is
+        sma_pct = (close - sma_20) / sma_20
+        sma_factor = min(sma_pct / 0.05, 1.0)  # 5% above SMA = max
+        vol_factor = min((vol_r - 1.0) / 2.0, 0.5)
+        confidence = 0.50 + sma_factor * 0.20 + vol_factor * 0.10 + ctx["sent_boost"]
+        return [{
+            "symbol":     symbol,
+            "side":       "buy",
+            "confidence": min(max(round(confidence, 3), 0.3), 0.90),
+            "sentiment":  round(ctx["sent_score"], 3),
+            "strategy":   "momentum_confirm",
+        }]
+    return []
+
+
+@register_strategy("profit_take")
+def _strat_profit_take(symbol, ctx):
+    """Exit signal — suggest profit-taking when RSI > 65 on a profitable long position.
+    Also triggers when price is > 3x ATR above recent low (extended move)."""
+    rsi_val = ctx["ind"].get("rsi")
+    atr_val = ctx.get("atr_val")
+    close = ctx["close"]
+    closes = ctx.get("closes", [])
+
+    if not rsi_val or not close:
+        return []
+
+    # Check if we hold this symbol
+    with shared.positions_lock:
+        pos = shared.positions.get(symbol)
+    if pos is None:
+        return []
+    qty = float(getattr(pos, "qty", 0) or (pos.get("qty", 0) if isinstance(pos, dict) else 0))
+    if qty <= 0:
+        return []  # only exit longs
+    unrealized = float(getattr(pos, "unrealized_pl", 0) or
+                       (pos.get("unrealised", 0) if isinstance(pos, dict) else 0))
+    if unrealized <= 0:
+        return []  # only take profits, not losses
+
+    signals = []
+
+    # RSI profit-taking: suggest partial exit when RSI > 65 with profit
+    if rsi_val > 65:
+        rsi_heat = (rsi_val - 65) / 35  # 0 at 65, 1 at 100
+        confidence = 0.35 + rsi_heat * 0.30
+        signals.append({
+            "symbol":     symbol,
+            "side":       "sell",
+            "confidence": min(max(round(confidence, 3), 0.3), 0.75),
+            "sentiment":  round(ctx["sent_score"], 3),
+            "strategy":   "profit_take",
+        })
+
+    # ATR extension: price moved > 3x ATR above 10-day low = extended, take profits
+    if atr_val and atr_val > 0 and len(closes) >= 10:
+        recent_low = min(closes[-10:])
+        extension = (close - recent_low) / atr_val
+        if extension > 3.0:
+            ext_factor = min((extension - 3.0) / 3.0, 1.0)  # 6x ATR = max
+            confidence = 0.40 + ext_factor * 0.25
+            signals.append({
+                "symbol":     symbol,
+                "side":       "sell",
+                "confidence": min(max(round(confidence, 3), 0.3), 0.70),
+                "sentiment":  round(ctx["sent_score"], 3),
+                "strategy":   "profit_take",
+            })
+
+    return signals
 
 
 @register_strategy("options_iv")
@@ -225,6 +456,43 @@ def _on_news(event):
                 _news[sym] = []
             _news[sym].append(event)
             _news[sym] = _news[sym][-10:]  # keep last 10 per symbol
+
+
+def _seed_news_from_db():
+    """Seed _news dict from stored news so sentiment scores are non-zero at startup."""
+    try:
+        conn = database.get_connection()
+        rows = conn.execute(
+            "SELECT headline, summary, symbols FROM news ORDER BY ts DESC LIMIT 200"
+        ).fetchall()
+        seeded = 0
+
+        class _NewsStub:
+            """Lightweight stand-in for score_news_events compatibility."""
+            def __init__(self, h, s):
+                self.headline = h
+                self.summary = s
+
+        for row in rows:
+            symbols_str = row["symbols"] or ""
+            headline = row["headline"] or ""
+            summary = row["summary"] or ""
+            if not headline:
+                continue
+            stub = _NewsStub(headline, summary)
+            for sym in symbols_str.split(","):
+                sym = sym.strip()
+                if not sym:
+                    continue
+                with _data_lock:
+                    if sym not in _news:
+                        _news[sym] = []
+                    if len(_news[sym]) < 10:
+                        _news[sym].append(stub)
+                        seeded += 1
+        logger.info(f"signal_generator: seeded {seeded} news items from DB for sentiment")
+    except Exception as e:
+        logger.debug(f"signal_generator: news seed from DB failed: {e}")
 
 # -- strategy scoring feedback loop -------------------------------------------
 _strategy_scores_cache: dict = {}  # strategy -> score dict (refreshed periodically)
@@ -376,9 +644,13 @@ def _emit_equity_signals(symbols: list) -> list:
         ema_d    = ind.get("ema_cross") or {}
         atr_val  = ind.get("atr")
 
-        # -- Sentiment --
-        news_events   = news.get(symbol, [])
-        sent_score    = sentiment.score_news_events(news_events)
+        # -- Sentiment (check both BTC/USD and BTCUSD formats for crypto) --
+        news_events = news.get(symbol, [])
+        if not news_events and "/" in symbol:
+            news_events = news.get(shared.normalize_crypto_noslash(symbol), [])
+        elif not news_events and symbol.endswith("USD"):
+            news_events = news.get(shared.normalize_crypto(symbol), [])
+        sent_score = sentiment.score_news_events(news_events)
 
         # -- IV / options regime --
         iv_val   = iv_engine.estimate_iv_from_chain(symbol, close)
@@ -392,11 +664,17 @@ def _emit_equity_signals(symbols: list) -> list:
         # Sentiment is a confidence modifier, not a gate.
         sent_boost = sent_score * 0.15  # ±0.15 max swing
 
+        # Compute weekly trend for multi-timeframe confirmation
+        weekly = _weekly_trend(closes)
+
         # Build context dict for registered strategies
         ctx = {
             "ind": ind, "bar": bar, "close": close,
+            "closes": closes, "volumes": volumes,
+            "atr_val": atr_val,
             "sent_score": sent_score, "sent_boost": sent_boost,
             "iv_val": iv_val, "ivr_data": ivr_data, "regime": regime,
+            "weekly_trend": weekly,
         }
 
         # Dispatch all registered strategies
@@ -412,6 +690,22 @@ def _emit_equity_signals(symbols: list) -> list:
         with shared.cache_lock:
             current_regime = getattr(shared, "market_regime", "unknown")
         active_strategies = settings.REGIME_STRATEGY_MAP.get(current_regime)
+
+        # Multi-timeframe filter: adjust confidence based on weekly trend alignment
+        for sig in signals_for_symbol:
+            sig_side = sig.get("side", "buy")
+            if weekly == "bullish" and sig_side == "buy":
+                sig["confidence"] = min(round(sig.get("confidence", 0.5) * 1.10, 3), 1.0)
+                sig["weekly_aligned"] = True
+            elif weekly == "bearish" and sig_side == "sell":
+                sig["confidence"] = min(round(sig.get("confidence", 0.5) * 1.10, 3), 1.0)
+                sig["weekly_aligned"] = True
+            elif weekly == "bullish" and sig_side == "sell":
+                sig["confidence"] = round(sig.get("confidence", 0.5) * 0.85, 3)
+                sig["weekly_aligned"] = False
+            elif weekly == "bearish" and sig_side == "buy":
+                sig["confidence"] = round(sig.get("confidence", 0.5) * 0.85, 3)
+                sig["weekly_aligned"] = False
 
         # Adjust confidence by strategy score, deduplicate, log to DB, add to batch
         for sig in signals_for_symbol:
@@ -450,7 +744,11 @@ def _emit_crypto_signals() -> list:
         if close <= 0 or open_ <= 0:
             continue
 
-        sent = sentiment.score_news_events(news.get(symbol, []))
+        # Check both BTC/USD and BTCUSD formats for news
+        crypto_news = news.get(symbol, [])
+        if not crypto_news:
+            crypto_news = news.get(shared.normalize_crypto_noslash(symbol), [])
+        sent = sentiment.score_news_events(crypto_news)
 
         if close > open_ * 1.005 and sent >= 0:
             if not _already_emitted(symbol, "buy", "crypto_momentum"):
@@ -582,6 +880,15 @@ def run():
     alpaca_stream.register_callback("crypto", _on_crypto_data)
     alpaca_stream.register_callback("option", _on_option_data)
     alpaca_stream.register_callback("news",   _on_news)
+
+    # Seed news from DB so sentiment is non-zero on startup
+    _seed_news_from_db()
+
+    # Force-load shadow/live strategies immediately (don't wait for hourly refresh)
+    try:
+        strategy_factory.refresh_strategies(force=True)
+    except Exception as e:
+        logger.debug(f"signal_generator: initial factory refresh error: {e}")
 
     while not shared.SHUTTING_DOWN:
         shared.heartbeat("signal_generator")

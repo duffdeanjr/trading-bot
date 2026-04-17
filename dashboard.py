@@ -83,7 +83,9 @@ def api_data():
     plan_row = query_one("SELECT plan_json, summary, trigger, ts FROM investment_plans ORDER BY version DESC LIMIT 1")
     errors = query("SELECT agent,level,message,ts FROM agent_logs WHERE level IN ('ERROR','WARNING') ORDER BY ts DESC LIMIT 20")
     signals = query("SELECT ts,symbol,strategy,side,confidence,sentiment FROM signals ORDER BY ts DESC LIMIT 20")
-    outcomes = query("SELECT symbol,strategy,side,pnl,pnl_pct,status FROM outcomes ORDER BY COALESCE(exit_ts, entry_ts) DESC LIMIT 20")
+    outcomes = query("""SELECT symbol, strategy, side, entry_price, exit_price,
+        pnl, pnl_pct, hold_duration_s, status, entry_ts, exit_ts
+        FROM outcomes ORDER BY COALESCE(exit_ts, entry_ts) DESC LIMIT 30""")
     scores = query("SELECT strategy,win_rate,avg_pnl_pct,sharpe,trade_count,score FROM strategy_scores ORDER BY score DESC")
     strategy_attribution = query("""
         SELECT strategy,
@@ -511,6 +513,117 @@ def api_bandit():
     return result
 
 
+def api_health():
+    """Return system health status."""
+    import os
+    result = {"status": "ok", "uptime_s": 0, "agents": {}, "db": {}}
+    try:
+        result["agents"] = {name: round(time.time() - ts, 1)
+                           for name, ts in shared.get_heartbeats().items()} if hasattr(shared, 'get_heartbeats') else {}
+    except Exception:
+        pass
+    try:
+        db_size = os.path.getsize(_db_path())
+        wal_size = os.path.getsize(_db_path() + "-wal") if os.path.exists(_db_path() + "-wal") else 0
+        result["db"] = {"size_mb": round(db_size / 1e6, 1), "wal_mb": round(wal_size / 1e6, 1)}
+    except Exception:
+        pass
+    try:
+        from agents import risk_manager
+        result["risk"] = risk_manager.get_heat_status()
+    except Exception:
+        pass
+    result["market_open"] = getattr(shared, "MARKET_OPEN", False)
+    result["shutting_down"] = getattr(shared, "SHUTTING_DOWN", False)
+    return result
+
+
+def api_signals():
+    """Return recent signals."""
+    try:
+        rows = query("SELECT ts, symbol, strategy, side, confidence, sentiment FROM signals ORDER BY ts DESC LIMIT 50")
+        return {"signals": rows, "count": len(rows)}
+    except Exception as e:
+        return {"error": str(e), "signals": []}
+
+
+def api_outcomes():
+    """Return trade outcomes."""
+    try:
+        rows = query("SELECT * FROM outcomes ORDER BY entry_ts DESC LIMIT 50")
+        return {"outcomes": rows, "count": len(rows)}
+    except Exception as e:
+        return {"error": str(e), "outcomes": []}
+
+
+def api_agent_logs():
+    """Return recent agent log entries."""
+    try:
+        rows = query("SELECT ts, agent, level, message FROM agent_logs ORDER BY ts DESC LIMIT 50")
+        return {"logs": rows, "count": len(rows)}
+    except Exception as e:
+        return {"error": str(e), "logs": []}
+
+
+def api_factory():
+    """Return strategy factory pipeline status."""
+    result = {"candidate": 0, "shadow": 0, "live": 0, "retired": 0,
+              "shadow_signals": 0, "recent_promotions": []}
+    try:
+        for status in ["candidate", "shadow", "live", "retired"]:
+            result[status] = query(f"SELECT COUNT(*) as cnt FROM strategy_recipes WHERE status=?",
+                                   (status,))[0]["cnt"]
+        result["shadow_signals"] = query("SELECT COUNT(*) as cnt FROM shadow_signals")[0]["cnt"]
+        # Recent promotions
+        recent = query("""SELECT id, status, entry, filter, exit, backtest_sharpe, backtest_win_rate
+                         FROM strategy_recipes WHERE status != 'candidate'
+                         ORDER BY last_updated_ts DESC LIMIT 10""")
+        result["recent_promotions"] = recent
+    except Exception:
+        pass
+    return result
+
+
+def api_screener():
+    """Return screener status."""
+    result = {"total_scanned": 0, "promoted": 0, "max_score": 0,
+              "threshold": settings.SCREENER_PROMOTE_THRESHOLD, "top_candidates": []}
+    try:
+        stats = query("SELECT COUNT(*) as total, SUM(CASE WHEN promoted=1 THEN 1 ELSE 0 END) as promoted, MAX(score) as max_score FROM screener_scores")
+        if stats:
+            result["total_scanned"] = stats[0]["total"]
+            result["promoted"] = stats[0]["promoted"]
+            result["max_score"] = stats[0]["max_score"]
+        # Top recent scores
+        top = query("SELECT symbol, score, reasons FROM screener_scores ORDER BY score DESC LIMIT 10")
+        result["top_candidates"] = top
+    except Exception:
+        pass
+    return result
+
+
+def api_notifications():
+    """Return recent notification alerts."""
+    try:
+        from agents.notifier import get_recent_notifications
+        return {"notifications": get_recent_notifications(20)}
+    except ImportError:
+        return {"notifications": []}
+    except Exception:
+        return {"notifications": []}
+
+
+def api_earnings():
+    """Return earnings calendar information."""
+    try:
+        from agents.earnings_calendar import get_earnings_info
+        return get_earnings_info()
+    except ImportError:
+        return {"total_tracked": 0, "upcoming": [], "blackout_days": 0}
+    except Exception:
+        return {"total_tracked": 0, "upcoming": [], "blackout_days": 0}
+
+
 POST_ROUTES = {
     "/api/exec/pause":           exec_pause,
     "/api/exec/resume":          exec_resume,
@@ -563,6 +676,32 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 tb = traceback.format_exc()
                 print("BANDIT API ERROR:", tb)
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(tb.encode())
+        elif path in ("/api/health", "/api/signals", "/api/outcomes", "/api/logs",
+                      "/api/factory", "/api/screener", "/api/notifications",
+                      "/api/earnings"):
+            api_map = {
+                "/api/health": api_health,
+                "/api/signals": api_signals,
+                "/api/outcomes": api_outcomes,
+                "/api/logs": api_agent_logs,
+                "/api/factory": api_factory,
+                "/api/screener": api_screener,
+                "/api/notifications": api_notifications,
+                "/api/earnings": api_earnings,
+            }
+            try:
+                body = json.dumps(api_map[path](), default=str).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                tb = traceback.format_exc()
+                print(f"API ERROR [{path}]:", tb)
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(tb.encode())
